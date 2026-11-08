@@ -1,0 +1,18 @@
+[geometry]
+footprint_m2 = 7.3
+thickness_m = [0.8, 2.3]
+leaf_area_density_m2_m3 = 0.7
+
+[transfer]
+face_pulse = 3.2
+leaf_energy_W_m2_leaf = 42.0
+leaf_water_kg_m2_leaf_s = 0.00003
+leaf_carbon_mol_m2_leaf_s = -0.000012
+face_energy_W_m2_ground = [13.0, -28.0, 47.0]
+face_water_kg_m2_ground_s = [0.00002, -0.00004, 0.00009]
+energy_datum_shift_J_kg = 170000.0
+
+[validation]
+relative_tolerance_eps = 32
+roundoff_operation_budget = 16
+maximum_roundoff_fraction_of_signal = 0.5

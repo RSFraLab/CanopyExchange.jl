@@ -1,0 +1,36 @@
+[metadata]
+description = "Manufactured conservative exchange fixture; values are test inputs, not a canopy parameterization. Layers ordered bottom to top."
+energy_convention = "Test sensible enthalpy plus vapour enthalpy under one common reference; no kinetic/potential or chemical energy."
+
+[layers]
+thickness_m = [0.4, 1.7, 2.9, 0.8]
+leaf_area_density_m2_m3 = [0.0, 0.6, 1.2, 0.3]
+sensible_heat_W_m2_leaf = [0.0, 37.0, -11.0, 82.0]
+water_kg_m2_leaf_s = [0.0, 0.00004, -0.000003, 0.00007]
+carbon_mol_m2_leaf_s = [0.0, -0.000012, 0.000002, -0.000019]
+oxygen_mol_m2_leaf_s = [0.0, 0.000013, -0.000002, 0.000021]
+vapor_enthalpy_J_kg = [2540000.0, 2540000.0, 2540000.0, 2540000.0]
+
+[faces]
+# Upward positive. Interior face values deliberately do not match any closure.
+energy_W_m2_ground = [19.0, -24.0, 76.0, 131.0, 44.0]
+water_kg_m2_ground_s = [0.000007, -0.000004, 0.00009, 0.00013, 0.00005]
+carbon_mol_m2_ground_s = [0.000003, -0.000002, 0.000009, -0.000015, -0.000008]
+oxygen_mol_m2_ground_s = [-0.000002, 0.000001, -0.000008, 0.000016, 0.000009]
+
+[enthalpy_reference]
+# A common additive change in water enthalpy shifts energy transfer by c*water.
+shift_J_kg = 170000.0
+
+[additional_tracer]
+description = "Manufactured methane transfer ledger, not a CH4 biophysics law or a full atmospheric mass budget."
+leaf_flux_mol_CH4_m2_leaf_s = [0.0, 0.00000003, -0.00000002, 0.00000001]
+face_flux_mol_CH4_m2_ground_s = [0.00000008, 0.00000004, -0.00000001, 0.00000002, 0.00000006]
+
+[validation]
+float32_relative_tolerance = 0.000002
+float64_relative_tolerance = 0.00000000000002
+float32_scaled_absolute_tolerance = 0.000002
+float64_scaled_absolute_tolerance = 0.00000000000002
+allocation_bytes = 0
+gpu_repetitions = 256
