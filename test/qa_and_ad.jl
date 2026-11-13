@@ -413,21 +413,19 @@ end
         t = layer_tendency(bot, top, p.air, pg)
         return moist_air_tendencies(shift_water_energy_datum(t, 100.0), 0.95)
     end
+    measure_alloc_kernel(lf, sf, pg, bot) = @allocated alloc_kernel(lf, sf, pg, bot)
     lf0 = sensible_water_flux(90.0, 3.0e-5, -1.0e-5, OxygenTransfer(1.1e-5), 2.5e6)
     sf0 = sensible_stem_flux(25.0, OxygenTransfer(0.0))
     pg0 = PlantLayerGeometry(2.0, 1.2, 0.3)
     bot0 = surface_static_energy_flux(40.0, 80.0, 3.2e-5, 1.0e-6, OxygenTransfer(-1.0e-6))
-    alloc_kernel(lf0, sf0, pg0, bot0)
-    @test (@allocated alloc_kernel(lf0, sf0, pg0, bot0)) == 0
+    measure_alloc_kernel(lf0, sf0, pg0, bot0)
+    @test measure_alloc_kernel(lf0, sf0, pg0, bot0) == 0
 
+    measure_accum_alloc(dest, s, srcs, geoms) =
+        @allocated accumulate_steady_fluxes!(dest, s, srcs, geoms)
     srcs_alloc = [plant_air_sources(lf0, sf0, pg0).air, plant_air_sources(lf0, sf0, pg0).air]
     geoms_alloc = [pg0, pg0]
     faces_alloc = Vector{typeof(bot0)}(undef, 3)
-    accumulate_steady_fluxes!(faces_alloc, bot0, srcs_alloc, geoms_alloc)
-    @test (@allocated accumulate_steady_fluxes!(
-        faces_alloc,
-        bot0,
-        srcs_alloc,
-        geoms_alloc,
-    )) == 0
+    measure_accum_alloc(faces_alloc, bot0, srcs_alloc, geoms_alloc)
+    @test measure_accum_alloc(faces_alloc, bot0, srcs_alloc, geoms_alloc) == 0
 end
