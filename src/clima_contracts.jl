@@ -3,12 +3,13 @@
 
 Construct an upward-positive [`FaceFlux`](@ref) from `SurfaceFluxes.jl` static-energy outputs.
 
-In CliMA's `SurfaceFluxes.jl` convention, `shf + lhf` equals the total moist
-static enthalpy plus surface-geopotential flux `Q_DSE + E * (h_v(T_s) + Φ_s)`
-relative to `Thermodynamics.jl`'s zero-energy datum, where `evaporation` [kg H₂O m⁻² s⁻¹]
-is the kinematic water mass flux. Conventional eddy-covariance `c_p ΔT + L_v(T_air) E`
-does **not** satisfy this static-energy datum without an explicit enthalpy shift
-via [`shift_water_energy_datum`](@ref).
+In CliMA's `SurfaceFluxes.jl` convention (`SHF = -ρ_sfc g_h ΔDSE + VSE_sfc E` and
+`LHF = LH_v0 E` with `LH_v0 + VSE_sfc == Thermodynamics.enthalpy_vapor(T_sfc) + Φ_sfc`),
+`shf + lhf` equals the total moist static enthalpy plus surface-geopotential flux
+`-ρ_sfc g_h ΔDSE + E * (h_v(T_sfc) + Φ_sfc)` relative to `Thermodynamics.jl`'s
+zero-energy datum, where `evaporation` [kg H₂O m⁻² s⁻¹] is the kinematic water mass
+flux. Conventional eddy-covariance `c_p ΔT + L_v(T_air) E` does **not** satisfy this
+static-energy datum without an explicit shift via [`shift_water_energy_datum`](@ref).
 
 # Examples
 ```jldoctest
@@ -17,6 +18,8 @@ julia> f = surface_static_energy_flux(60.0, 140.0, 5.6e-5, -1.5e-5);
 julia> (f.rates.energy, f.rates.water, f.rates.carbon)
 (200.0, 5.6e-5, -1.5e-5)
 ```
+
+See also [`shift_water_energy_datum`](@ref), [`sensible_water_flux`](@ref), [`FaceFlux`](@ref).
 """
 @inline function surface_static_energy_flux(
     shf::Real,
@@ -181,6 +184,26 @@ Overwrite `faces` (`N + 1` elements) in place from `bottom` upward across `N` la
 `length(faces) == length(sources) + 1`, throwing `DimensionMismatch` otherwise.
 At completion, `faces[end]` holds the emergent canopy-top [`FaceFlux`](@ref)
 equal to `bottom + sum_k thickness_k * sources_k`.
+
+# Examples
+```jldoctest
+julia> b = FaceFlux(ExchangeRates(10.0, 0.0, 0.0));
+
+julia> s = [VolumeSource(ExchangeRates(6.0, 0.0, 0.0))];
+
+julia> g = [LayerGeometry(2.0, 0.5)];
+
+julia> faces = Vector{typeof(b)}(undef, 2);
+
+julia> accumulate_steady_fluxes!(faces, b, s, g);
+
+julia> [f.rates.energy for f in faces]
+2-element Vector{Float64}:
+ 10.0
+ 22.0
+```
+
+See also [`accumulate_steady_fluxes`](@ref), [`steady_top_flux`](@ref), [`layer_flux_increment`](@ref).
 """
 function accumulate_steady_fluxes!(
     faces::AbstractVector{<:FaceFlux},
@@ -209,9 +232,10 @@ end
 """
     accumulate_steady_fluxes(bottom::FaceFlux, sources, geometries) -> Vector{<:FaceFlux}
 
-Allocate and return the `N + 1` steady-state [`FaceFlux`](@ref) profile from `bottom` to canopy top.
+Allocate and return a 1-based `N + 1` steady-state [`FaceFlux`](@ref) profile from `bottom` to canopy top.
 
-See [`accumulate_steady_fluxes!`](@ref).
+Pass a preallocated staggered vector (including `OffsetVector`) to
+[`accumulate_steady_fluxes!`](@ref) when custom face index axes are required.
 
 # Examples
 ```jldoctest
@@ -229,6 +253,8 @@ julia> [f.rates.energy for f in faces]
  20.0
  32.0
 ```
+
+See also [`accumulate_steady_fluxes!`](@ref), [`steady_top_flux`](@ref).
 """
 function accumulate_steady_fluxes(
     bottom::FaceFlux{FB,OB},

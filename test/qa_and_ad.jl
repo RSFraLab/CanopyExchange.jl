@@ -17,6 +17,7 @@ using Test
         @test check_all_explicit_imports_are_public(CanopyExchange) === nothing
         @test check_all_qualified_accesses_via_owners(CanopyExchange) === nothing
         @test check_all_qualified_accesses_are_public(CanopyExchange) === nothing
+        @test check_no_self_qualified_accesses(CanopyExchange) === nothing
         @test isempty(Docs.undocumented_names(CanopyExchange))
     end
 
@@ -152,6 +153,37 @@ end
     @test nan1 != nan2
     @test isequal(nan1, nan2)
     @test hash(nan1) == hash(nan2)
+
+    # Base.promote_rule concrete AD container promotion vs incompatible non-promotion
+    D64 = typeof(mkdual(1.0, 1.0))
+    @test eltype([NoOxygen(Float64), NoOxygen(D64)]) === NoOxygen{D64}
+    @test eltype([OxygenTransfer(1.0), OxygenTransfer(mkdual(2.0, 1.0))]) ===
+          OxygenTransfer{D64}
+    @test eltype([r64, ExchangeRates(mkdual(1.0, 1.0), 2.0, -1.0)]) ===
+          ExchangeRates{D64,NoOxygen{D64}}
+    for W in (LeafFlux, StemFlux, FaceFlux, VolumeSource)
+        v_prom = [W(r64), W(ExchangeRates(mkdual(1.0, 1.0), 2.0, -1.0))]
+        @test eltype(v_prom) === W{D64,NoOxygen{D64}}
+        @test isbitstype(eltype(v_prom))
+    end
+    m64 = MoistAirTendencies(1.0e-5, 1.0e-5, 80.0, -1.0e-6)
+    m_dual = MoistAirTendencies(mkdual(1.0e-5, 1.0), 1.0e-5, 80.0, -1.0e-6)
+    @test eltype([m64, m_dual]) === MoistAirTendencies{D64,NoOxygen{D64}}
+    @test eltype([LayerGeometry(1.5, 0.8), LayerGeometry(mkdual(1.5, 1.0), 0.8)]) ===
+          LayerGeometry{D64}
+    @test eltype([pg, PlantLayerGeometry(mkdual(2.0, 1.0), 1.2, 0.3)]) ===
+          PlantLayerGeometry{D64}
+    @test Base.promote_rule(typeof(r64), typeof(r32)) === Union{}
+    @test Base.promote_rule(typeof(r64), typeof(r64_o2)) === Union{}
+
+    # Mixed primal + Dual column accumulation via concrete container promotion
+    mixed_faces = accumulate_steady_fluxes(
+        FaceFlux(r64),
+        [VolumeSource(r64), VolumeSource(ExchangeRates(mkdual(20.0, 1.0), 0.0, 0.0))],
+        [LayerGeometry(1.5, 0.8), LayerGeometry(2.0, mkdual(0.6, 0.5))],
+    )
+    @test eltype(mixed_faces) === FaceFlux{D64,NoOxygen{D64}}
+    @test mixed_faces[end].rates.energy == mkdual(100.0 + 1.5 * 100.0 + 2.0 * 20.0, 2.0)
 end
 
 @testset "ForwardDiff 1st/2nd-order AD, nonfinite partial guards, and BigFloat Duals" begin
@@ -387,4 +419,15 @@ end
     bot0 = surface_static_energy_flux(40.0, 80.0, 3.2e-5, 1.0e-6, OxygenTransfer(-1.0e-6))
     alloc_kernel(lf0, sf0, pg0, bot0)
     @test (@allocated alloc_kernel(lf0, sf0, pg0, bot0)) == 0
+
+    srcs_alloc = [plant_air_sources(lf0, sf0, pg0).air, plant_air_sources(lf0, sf0, pg0).air]
+    geoms_alloc = [pg0, pg0]
+    faces_alloc = Vector{typeof(bot0)}(undef, 3)
+    accumulate_steady_fluxes!(faces_alloc, bot0, srcs_alloc, geoms_alloc)
+    @test (@allocated accumulate_steady_fluxes!(
+        faces_alloc,
+        bot0,
+        srcs_alloc,
+        geoms_alloc,
+    )) == 0
 end

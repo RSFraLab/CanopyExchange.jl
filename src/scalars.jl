@@ -8,6 +8,14 @@ Return the underlying leaf floating-point type of continuous scalar type `T`.
 For `T <: AbstractFloat`, return `T` directly. For concrete composite `Real`
 types whose first field stores the primal value (such as `ForwardDiff.Dual`),
 recurse until reaching the underlying `AbstractFloat`.
+
+# Examples
+```jldoctest
+julia> CanopyExchange.primal_float_type(Float32)
+Float32
+```
+
+See also [`CanopyExchange.primal_scalar`](@ref), [`CanopyExchange.is_continuous_scalar`](@ref).
 """
 @inline primal_float_type(::Type{T}) where {T<:AbstractFloat} = T
 @inline function primal_float_type(::Type{T}) where {T<:Real}
@@ -27,6 +35,14 @@ end
     primal_scalar(x::Real) -> AbstractFloat
 
 Extract the underlying primal floating-point value from continuous scalar `x`.
+
+# Examples
+```jldoctest
+julia> CanopyExchange.primal_scalar(2.5f0)
+2.5f0
+```
+
+See also [`CanopyExchange.primal_float_type`](@ref), [`CanopyExchange.finite_scalar`](@ref).
 """
 @inline primal_scalar(x::AbstractFloat) = x
 @inline function primal_scalar(x::T) where {T<:Real}
@@ -47,6 +63,14 @@ Return `true` if `T` is a concrete continuous `Real` scalar backed by an `Abstra
 Reject abstract types (`Real`, `AbstractFloat`), discrete scalar types (`Bool`,
 `Integer`, `Rational`, `AbstractIrrational`), and composite duals built over
 discrete scalar types.
+
+# Examples
+```jldoctest
+julia> (CanopyExchange.is_continuous_scalar(Float64), CanopyExchange.is_continuous_scalar(Int))
+(true, false)
+```
+
+See also [`CanopyExchange.compatible_scalar`](@ref), [`CanopyExchange.primal_float_type`](@ref).
 """
 @inline function is_continuous_scalar(::Type{T}) where {T}
     isconcretetype(T) || return false
@@ -69,6 +93,14 @@ Return `true` if `A` and `B` are continuous scalars sharing the identical primal
 This permits automatic differentiation promotion (`Float64` with
 `ForwardDiff.Dual{Tag,Float64,N}`) while rejecting mixed floating-point
 precisions (`Float32` with `Float64`) and discrete scalar types.
+
+# Examples
+```jldoctest
+julia> (CanopyExchange.compatible_scalar(Float64, Float64), CanopyExchange.compatible_scalar(Float32, Float64))
+(true, false)
+```
+
+See also [`CanopyExchange.is_continuous_scalar`](@ref), [`CanopyExchange.compatible_oxygen`](@ref).
 """
 @inline function compatible_scalar(::Type{A}, ::Type{B}) where {A,B}
     return is_continuous_scalar(A) &&
@@ -107,11 +139,19 @@ end
 """
     finite_scalar(x::Real) -> Bool
 
-Return `true` if every leaf floating-point component of `x` (both primal and partials) is finite.
+Return `true` if every leaf floating-point component of `x` (primal and partials) is finite.
 
 Unlike `Base.isfinite` on `ForwardDiff.Dual`, which inspects only the primal
 value, `finite_scalar` unrolls all composite struct and tuple fields at compile
 time in zero allocations and rejects `NaN` or `Inf` in derivative partials.
+
+# Examples
+```jldoctest
+julia> (CanopyExchange.finite_scalar(1.5), CanopyExchange.finite_scalar(NaN))
+(true, false)
+```
+
+See also [`CanopyExchange.exact_zero_scalar`](@ref), [`valid_exchange`](@ref).
 """
 @inline finite_scalar(x::AbstractFloat) = isfinite(x)
 @generated function finite_scalar(x::T) where {T}
@@ -134,11 +174,19 @@ end
 """
     exact_zero_scalar(x::Real) -> Bool
 
-Return `true` if every leaf floating-point component of `x` (both primal and partials) is zero.
+Return `true` if every leaf floating-point component of `x` (primal and partials) is zero.
 
 Evaluate `iszero` structurally across all leaf `AbstractFloat` components in zero
 allocations, handling IEEE `±0.0`, `BigFloat(0)`, and nested `ForwardDiff.Dual`
 numbers without pointer-identity comparisons (`===`).
+
+# Examples
+```jldoctest
+julia> (CanopyExchange.exact_zero_scalar(-0.0), CanopyExchange.exact_zero_scalar(1.0e-12))
+(true, false)
+```
+
+See also [`CanopyExchange.finite_scalar`](@ref), [`area_source`](@ref).
 """
 @inline exact_zero_scalar(x::AbstractFloat) = iszero(x)
 @generated function exact_zero_scalar(x::T) where {T}

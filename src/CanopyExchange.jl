@@ -15,7 +15,7 @@ closure, equation of state, or time integrator.
 """
 module CanopyExchange
 
-import Base: ==, +, -, *, /, convert, eltype, hash, isequal, zero
+import Base: ==, +, -, *, /, convert, eltype, hash, isequal, promote_rule, zero
 import Base.Broadcast: broadcastable
 
 export OxygenContent,

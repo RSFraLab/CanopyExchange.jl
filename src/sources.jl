@@ -74,6 +74,14 @@ end
 
 Return total one-sided plant area density (`LAD` for [`LayerGeometry`](@ref), or
 `LAD + SAD` for [`PlantLayerGeometry`](@ref)) in m² plant area per m³ bulk canopy.
+
+# Examples
+```jldoctest
+julia> (plant_area_density(LayerGeometry(1.5, 0.8)), plant_area_density(PlantLayerGeometry(1.5, 0.8, 0.2)))
+(0.8, 1.0)
+```
+
+See also [`LayerGeometry`](@ref), [`PlantLayerGeometry`](@ref), [`plant_air_sources`](@ref).
 """
 function plant_area_density end
 @inline plant_area_density(geometry::LayerGeometry) = geometry.leaf_area_density

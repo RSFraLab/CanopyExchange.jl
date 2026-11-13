@@ -58,6 +58,14 @@ end
     oxygen_value(oxygen::OxygenContent)
 
 Return `nothing` for [`NoOxygen`](@ref) or the scalar mol O₂ transfer for [`OxygenTransfer`](@ref).
+
+# Examples
+```jldoctest
+julia> (oxygen_value(NoOxygen(Float32)), oxygen_value(OxygenTransfer(2.5f-5)))
+(nothing, 2.5f-5)
+```
+
+See also [`NoOxygen`](@ref), [`OxygenTransfer`](@ref).
 """
 function oxygen_value end
 @inline oxygen_value(::NoOxygen) = nothing
@@ -69,7 +77,18 @@ function oxygen_value end
 Return `true` if `O1` and `O2` represent the same oxygen mode over compatible continuous scalars.
 
 Both types must be [`NoOxygen`](@ref) or both must be [`OxygenTransfer`](@ref),
-and their scalar parameters must satisfy [`compatible_scalar`](@ref).
+and their scalar parameters must satisfy [`CanopyExchange.compatible_scalar`](@ref).
+
+# Examples
+```jldoctest
+julia> CanopyExchange.compatible_oxygen(NoOxygen{Float64}, NoOxygen{Float64})
+true
+
+julia> CanopyExchange.compatible_oxygen(NoOxygen{Float64}, OxygenTransfer{Float64})
+false
+```
+
+See also [`CanopyExchange.compatible_scalar`](@ref), [`OxygenContent`](@ref).
 """
 function compatible_oxygen end
 @inline compatible_oxygen(::Type{NoOxygen{A}}, ::Type{NoOxygen{B}}) where {A,B} =
@@ -110,13 +129,14 @@ function compatible_oxygen end
 
 """
     ExchangeRates(energy, water, carbon, oxygen=NoOxygen(FT))
-    ExchangeRates(; energy, water, carbon, oxygen=NoOxygen(FT))
+    ExchangeRates(; energy, water, carbon, oxygen=nothing)
 
 Bundle conserved transfer rates for energy [J], water [kg H₂O], carbon [mol C],
 and optional oxygen [mol O₂], each per second and per wrapper spatial measure.
 
 All numeric fields and `oxygen` share one continuous scalar type `FT` (or
 promote cleanly across compatible primal and automatic-differentiation scalars).
+Passing `oxygen=nothing` in the keyword constructor selects `NoOxygen{FT}()`.
 Carbon exchange represents `CO₂` molar transfer (`1` mol C per mol `CO₂`), not
 biochemical enthalpy of assimilated carbohydrate.
 
@@ -132,6 +152,8 @@ ExchangeRates{Float64, NoOxygen{Float64}}(120.0, 2.0e-5, -1.0e-5, NoOxygen{Float
 julia> valid_exchange(r)
 true
 ```
+
+See also [`LeafFlux`](@ref), [`StemFlux`](@ref), [`FaceFlux`](@ref), [`VolumeSource`](@ref).
 """
 struct ExchangeRates{FT<:Real,O<:OxygenContent{FT}}
     energy::FT
@@ -210,6 +232,16 @@ abstract type AbstractExchangeFlux{FT<:Real,O<:OxygenContent{FT}} end
     LeafFlux(rates::ExchangeRates)
 
 Wrap `rates` as a flux per m² one-sided leaf area per second, positive from leaf into air.
+
+# Examples
+```jldoctest
+julia> f = LeafFlux(ExchangeRates(100.0, 3.0e-5, -1.2e-5));
+
+julia> f.rates.carbon
+-1.2e-5
+```
+
+See also [`sensible_water_flux`](@ref), [`leaf_air_sources`](@ref), [`StemFlux`](@ref).
 """
 struct LeafFlux{FT<:Real,O<:OxygenContent{FT}} <: AbstractExchangeFlux{FT,O}
     rates::ExchangeRates{FT,O}
@@ -228,6 +260,16 @@ Wrap `rates` as a flux per m² one-sided woody/stem area per second, positive fr
 Keeping `StemFlux` distinct from [`LeafFlux`](@ref) prevents swapping leaf and
 stem arguments in [`plant_air_sources`](@ref) or adding fluxes across unequal
 leaf (`LAD`) and stem (`SAD`) area denominators.
+
+# Examples
+```jldoctest
+julia> s = StemFlux(ExchangeRates(25.0, 0.0, 0.0));
+
+julia> s.rates.energy
+25.0
+```
+
+See also [`sensible_stem_flux`](@ref), [`plant_air_sources`](@ref), [`LeafFlux`](@ref).
 """
 struct StemFlux{FT<:Real,O<:OxygenContent{FT}} <: AbstractExchangeFlux{FT,O}
     rates::ExchangeRates{FT,O}
@@ -242,6 +284,16 @@ end
     FaceFlux(rates::ExchangeRates)
 
 Wrap `rates` as a flux per m² horizontal ground area per second, positive upward.
+
+# Examples
+```jldoctest
+julia> ff = FaceFlux(ExchangeRates(180.0, 5.0e-5, -1.5e-5));
+
+julia> ff.rates.energy
+180.0
+```
+
+See also [`surface_static_energy_flux`](@ref), [`layer_tendency`](@ref), [`steady_top_flux`](@ref).
 """
 struct FaceFlux{FT<:Real,O<:OxygenContent{FT}} <: AbstractExchangeFlux{FT,O}
     rates::ExchangeRates{FT,O}
@@ -256,6 +308,16 @@ end
     VolumeSource(rates::ExchangeRates)
 
 Wrap `rates` as a source per m³ bulk canopy volume per second, positive into the named reservoir.
+
+# Examples
+```jldoctest
+julia> vs = VolumeSource(ExchangeRates(50.0, 1.0e-5, -0.5e-5));
+
+julia> vs.rates.water
+1.0e-5
+```
+
+See also [`leaf_air_sources`](@ref), [`plant_air_sources`](@ref), [`moist_air_tendencies`](@ref).
 """
 struct VolumeSource{FT<:Real,O<:OxygenContent{FT}} <: AbstractExchangeFlux{FT,O}
     rates::ExchangeRates{FT,O}
@@ -268,7 +330,7 @@ end
 
 """
     MoistAirTendencies(rho_total, rho_water, rho_energy, carbon, oxygen=NoOxygen(FT))
-    MoistAirTendencies(; rho_total, rho_water, rho_energy, carbon, oxygen=NoOxygen(FT))
+    MoistAirTendencies(; rho_total, rho_water, rho_energy, carbon, oxygen=nothing)
 
 Store conserved atmospheric gas-volume source tendencies per m³ gas volume per second.
 
@@ -278,10 +340,19 @@ porous-canopy hosts with conserved dry-air mass `S_ρd = 0`):
 - `rho_water`: total water mass source [kg H₂O m⁻³ gas s⁻¹],
 - `rho_energy`: total energy density source [J m⁻³ gas s⁻¹] in the host's datum,
 - `carbon`: passive molar `CO₂` source [mol C m⁻³ gas s⁻¹],
-- `oxygen`: optional molar `O₂` source [mol O₂ m⁻³ gas s⁻¹].
+- `oxygen`: optional molar `O₂` source [mol O₂ m⁻³ gas s⁻¹] (`nothing` keyword selects `NoOxygen{FT}()`).
 
-Momentum, canopy drag, and subgrid turbulent kinetic energy are excluded. See
-[`moist_air_tendencies`](@ref).
+Momentum, canopy drag, and subgrid turbulent kinetic energy are excluded.
+
+# Examples
+```jldoctest
+julia> m = MoistAirTendencies(; rho_total=4.0e-5, rho_water=4.0e-5, rho_energy=150.0, carbon=-1.0e-5);
+
+julia> (m.rho_total, m.rho_energy)
+(4.0e-5, 150.0)
+```
+
+See also [`moist_air_tendencies`](@ref), [`VolumeSource`](@ref).
 """
 struct MoistAirTendencies{FT<:Real,O<:OxygenContent{FT}}
     rho_total::FT
@@ -624,6 +695,59 @@ function Base.convert(
     )
 end
 
+# Compatible-scalar Base.promote_rule methods (concrete AD container promotion; Union{} on mismatch)
+function promote_rule(::Type{NoOxygen{A}}, ::Type{NoOxygen{B}}) where {A<:Real,B<:Real}
+    compatible_scalar(A, B) || return Union{}
+    FT = promote_type(A, B)
+    is_continuous_scalar(FT) || return Union{}
+    return NoOxygen{FT}
+end
+
+function promote_rule(
+    ::Type{OxygenTransfer{A}},
+    ::Type{OxygenTransfer{B}},
+) where {A<:Real,B<:Real}
+    compatible_scalar(A, B) || return Union{}
+    FT = promote_type(A, B)
+    is_continuous_scalar(FT) || return Union{}
+    return OxygenTransfer{FT}
+end
+
+for RecT in (
+    :ExchangeRates,
+    :LeafFlux,
+    :StemFlux,
+    :FaceFlux,
+    :VolumeSource,
+    :MoistAirTendencies,
+)
+    @eval begin
+        function promote_rule(
+            ::Type{$RecT{FA,OA}},
+            ::Type{$RecT{FB,OB}},
+        ) where {FA<:Real,OA<:OxygenContent{FA},FB<:Real,OB<:OxygenContent{FB}}
+            compatible_oxygen(OA, OB) || return Union{}
+            FT = promote_type(FA, FB)
+            is_continuous_scalar(FT) || return Union{}
+            return $RecT{FT,_promote_oxygen_type(OA, FT)}
+        end
+    end
+end
+
+for GeomT in (:LayerGeometry, :PlantLayerGeometry)
+    @eval begin
+        function promote_rule(
+            ::Type{$GeomT{A}},
+            ::Type{$GeomT{B}},
+        ) where {A<:Real,B<:Real}
+            compatible_scalar(A, B) || return Union{}
+            FT = promote_type(A, B)
+            is_continuous_scalar(FT) || return Union{}
+            return $GeomT{FT}
+        end
+    end
+end
+
 # Unified ==, isequal, and hash (both isequal(a, b) => hash(a) == hash(b) and a == b => hash(a) == hash(b))
 Base.:(==)(::NoOxygen, ::NoOxygen) = true
 Base.isequal(::NoOxygen, ::NoOxygen) = true
@@ -939,6 +1063,17 @@ Return `true` if every computed scalar component of `x` (including dual partials
 Accept [`ExchangeRates`](@ref), any [`AbstractExchangeFlux`](@ref), and
 [`MoistAirTendencies`](@ref). [`NoOxygen`](@ref) is treated as valid; hosts
 remain responsible for thermodynamic admissibility and retry policy.
+
+# Examples
+```jldoctest
+julia> valid_exchange(LeafFlux(ExchangeRates(100.0, 2.0e-5, -1.0e-5)))
+true
+
+julia> valid_exchange(LeafFlux(ExchangeRates(NaN, 2.0e-5, -1.0e-5)))
+false
+```
+
+See also [`CanopyExchange.finite_scalar`](@ref), [`ExchangeRates`](@ref), [`MoistAirTendencies`](@ref).
 """
 function valid_exchange end
 
