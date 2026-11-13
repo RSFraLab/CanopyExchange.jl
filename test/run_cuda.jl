@@ -100,5 +100,27 @@ CUDA.allowscalar(false)
             end
         end
         @test (oxygen_value(actual[1].rates.oxygen) === nothing) == !enabled
+
+        # Plant (LAD + SAD), datum shift, steady flux, and moist-air CUDA broadcast
+        device_pg = CuArray(
+            PlantLayerGeometry.(
+                getproperty.(geometry, :thickness),
+                getproperty.(geometry, :leaf_area_density),
+                FT(0.2),
+            ),
+        )
+        stem_o2 = enabled ? OxygenTransfer(zero(FT)) : NoOxygen{FT}()
+        device_stems = CuArray(fill(sensible_stem_flux(FT(15), stem_o2), length(leaves)))
+        device_plant = plant_air_sources.(device_leaves, device_stems, device_pg)
+        device_plant_air = (p -> p.air).(device_plant)
+        device_shifted = shift_water_energy_datum.(device_bottom, FT(500))
+        device_steady_top = steady_top_flux.(device_shifted, device_plant_air, device_pg)
+        device_plant_tend =
+            layer_tendency.(device_shifted, device_steady_top, device_plant_air, device_pg)
+        device_moist = moist_air_tendencies.(device_plant_tend, FT(0.92))
+        host_moist = Array(device_moist)
+        @test eltype(host_moist) === MoistAirTendencies{FT,typeof(stem_o2)}
+        @test all(valid_exchange, host_moist)
+        @test maximum(m -> abs(m.rho_energy), host_moist) <= FT(100) * eps(FT) * FT(1e4)
     end
 end

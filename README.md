@@ -1,56 +1,55 @@
 # CanopyExchange.jl
 
-Small scalar contracts for conservative leaf–air and vertical face transfers.
-This local, private-first package has no runtime dependencies. It was extracted
-from `CanopyColumn.ConservativeExchange` at CanopyColumn commit `05723a9`,
-preserving the arithmetic and Apache-2.0 attribution.
+Zero-dependency, measure-safe scalar exchange contracts for layered plant canopies
+and atmospheric or land host models (`ClimaLand`, `SurfaceFluxes`, `ClimaAtmos`,
+and standalone finite-volume columns). Originally extracted from
+`CanopyColumn.ConservativeExchange` (`05723a9`) with Apache-2.0 attribution and
+exact IEEE-754 primal bit parity.
 
-## Finding the code
+## Source layout
 
-- `src/quantities.jl`: typed leaf-area fluxes, ground-area face fluxes, bulk-volume
-  sources, layer geometry and optional oxygen.
-- `src/sources.jl`: area conversion, paired exchange and finite-volume divergence.
-- `test/parameters/`: manufactured inputs and numerical tolerances in TOML.
-- `test/runtests.jl`: independent conservation, precision and invalid-input checks.
-- `test/run_cuda.jl`: optional CUDA broadcast verification; CUDA is supplied by the
-  caller's test environment, not a dependency of the package.
+- `src/scalars.jl`: continuous-scalar `{FT<:Real}` traits and zero-allocation
+  `@generated` leaf-float predicates (`finite_scalar`, `exact_zero_scalar`) for
+  `Float32`, `Float64`, `BigFloat`, and `ForwardDiff.Dual`.
+- `src/quantities.jl`: measure-tagged wrappers (`LeafFlux`, `StemFlux`, `FaceFlux`,
+  `VolumeSource`), conserved gas-volume `MoistAirTendencies`, layer geometries
+  (`LayerGeometry`, `PlantLayerGeometry`), optional oxygen (`NoOxygen`,
+  `OxygenTransfer`), and `Base` interfaces (`eltype`, `broadcastable`, `convert`,
+  `==`, `isequal`, `hash`, `zero`, linear algebra).
+- `src/sources.jl`: one-sided leaf (`LAD`) and stem (`SAD`) area-to-volume source
+  conversions, paired donor ledgers (`leaf_air_sources`, `plant_air_sources`), and
+  conservative finite-volume divergence (`conserved_tendency`, `layer_tendency`).
+- `src/clima_contracts.jl`: CliMA boundary and host contracts
+  (`surface_static_energy_flux`, `shift_water_energy_datum`, `layer_flux_increment`,
+  `steady_top_flux`, `accumulate_steady_fluxes!`, `accumulate_steady_fluxes`,
+  `moist_air_tendencies`).
+- `test/`: conservation, migration bit-parity, `Aqua`, `ExplicitImports`,
+  `Documenter` doctests, 1st/2nd-order `ForwardDiff` AD, `OffsetArrays`, and
+  optional `CUDA` broadcast tests (`test/run_cuda.jl`).
 
-All scientific values use one floating-point type; Float32 and Float64 are tested.
-The immutable scalar records can be broadcast on CPU or GPU. Device arrays, grids,
-solvers and physics laws remain the caller's choice.
+## Physical measures and ownership
 
-## Measures and ownership
+- `LeafFlux`: per m² **one-sided leaf area** per second, positive from leaf into air.
+- `StemFlux`: per m² **one-sided woody/stem area** per second, positive from stem into air.
+- `FaceFlux`: per m² **horizontal ground area** per second, positive upward.
+- `VolumeSource`: per m³ **bulk canopy volume** per second, positive into the named reservoir.
+- `MoistAirTendencies`: per m³ **gas volume** per second (`ε_gas ∈ (0, 1]`, conserved
+  dry air `S_ρd = 0`, passive molar `CO₂`/`O₂`, excluding momentum/drag/TKE).
 
-`LeafFlux` is per square metre of **one-sided leaf area**. `FaceFlux` is per square
-metre of common horizontal ground area and positive upward. `VolumeSource` is per
-cubic metre of **bulk canopy**, not physical gas volume. `leaf_air_sources` applies
-LAD exactly once and returns opposite air/leaf ledgers. `layer_tendency` adds
-`(bottom - top)/thickness`. Hosts own metrics, porosity and conversion to their
-conserved variables. A leaf ledger does not imply a leaf CO₂/O₂ storage model.
+`leaf_air_sources` and `plant_air_sources` multiply element area densities (`LAD`,
+`SAD`) once and return equal-and-opposite donor ledgers without asserting leaf gas
+storage. `shift_water_energy_datum` shifts water reference enthalpy or geopotential
+on individual streams **prior** to `layer_tendency` so shared interior face fluxes
+telescope conservatively across multi-layer columns.
 
-`NoOxygen` means not computed, distinctly from a computed zero. Scalar
-`leaf_area_source` and `conserved_tendency` support additional tracers without
-changing the convenience records. `valid_exchange` tests finiteness only; it does
-not establish admissible thermodynamics, positive inventories or stoichiometry.
+No leaf biochemistry, radiative transfer, turbulence closure, equation of state, or
+time integrator belongs in `CanopyExchange`.
 
-Energy has a caller-declared reference and definition. `sensible_water_flux`
-constructs `Q + E*h_v`; it excludes mass-carried kinetic/potential energy,
-trace-gas enthalpy and biochemical energy. Do not add that helper's result to a
-separate complete thermal packet. An equal/opposite ledger does not by itself
-prove compatibility with a host's energy variable.
-
-No leaf biochemistry, radiation, thermodynamics, turbulence, host fields or time
-integration belongs here. The original CanopyColumn namespace is retained as a
-compatibility alias in the integration branch, with one canonical type owner.
-Existing serialized objects from the old module are not a supported migration
-format.
-
-## Local verification
+## Verification
 
 ```sh
-julia --project=. -e 'using Pkg; Pkg.test()'
+julia --startup-file=no --project=. -e 'using Pkg; Pkg.test()'
 ```
 
-For CUDA, develop this package in an environment containing CUDA and run
-`test/run_cuda.jl` under the shared GPU allocation policy. Tests exercise kernels;
-they are not throughput benchmarks or complete atmosphere-coupling validation.
+For GPU verification on an environment providing `CUDA.jl`, run `test/run_cuda.jl`
+under the shared GPU lock (`CUDA.allowscalar(false)`).

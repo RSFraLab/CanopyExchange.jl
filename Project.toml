@@ -1,16 +1,7 @@
 name = "CanopyExchange"
 uuid = "bcadd6a6-82db-4312-8c3d-ee75d4df0995"
 authors = ["Christian Frankenberg <cfranken@caltech.edu> and contributors"]
-version = "0.1.0"
+version = "0.1.1"
 
 [compat]
 julia = "1.10"
-Test = "1"
-TOML = "1"
-
-[extras]
-Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
-
-[targets]
-test = ["Test", "TOML"]
