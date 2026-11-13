@@ -5,4 +5,4 @@ thermodynamics, host fields, turbulence and time integration. It owns area/volum
 measures and conservative transfer arithmetic, not the physical exchange laws.
 Preserve Float32/Float64 and explicit absent oxygen. Parameters and tolerances
 belong in TOML fixtures. Major steps need independent code and physics reviews.
-This package is local/private-first; do not publish private dependencies.
+Keep runtime Project.toml dependency-free; do not add private dependencies.

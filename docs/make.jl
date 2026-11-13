@@ -30,8 +30,8 @@ function build()
 
     format = Documenter.HTML(
         prettyurls = get(ENV, "CI", nothing) == "true",
-        edit_link = nothing,
-        repolink = nothing,
+        edit_link = "main",
+        repolink = "https://github.com/RSFraLab/CanopyExchange.jl",
         mathengine = mathengine,
         collapselevel = 1,
         size_threshold = nothing,
@@ -60,9 +60,9 @@ end
 
 build()
 
-if get(ENV, "CI", "false") == "true" && haskey(ENV, "GITHUB_REPOSITORY")
+if get(ENV, "CI", "false") == "true"
     deploydocs(
-        repo = "github.com/$(ENV["GITHUB_REPOSITORY"]).git",
+        repo = "github.com/RSFraLab/CanopyExchange.jl.git",
         target = "build",
         devbranch = "main",
         push_preview = true,
