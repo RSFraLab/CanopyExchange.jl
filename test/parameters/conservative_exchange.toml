@@ -27,6 +27,25 @@ description = "Manufactured methane transfer ledger, not a CH4 biophysics law or
 leaf_flux_mol_CH4_m2_leaf_s = [0.0, 0.00000003, -0.00000002, 0.00000001]
 face_flux_mol_CH4_m2_ground_s = [0.00000008, 0.00000004, -0.00000001, 0.00000002, 0.00000006]
 
+[stems]
+description = "Manufactured stem exchange inputs per m2 one-sided stem area and second; layers ordered as in [layers]. Values are test inputs, not a woody-tissue parameterization."
+stem_area_density_m2_m3 = [0.2, 0.0, 0.35, 0.15]
+sensible_heat_W_m2_stem = [12.0, 30.0, -4.0, 18.0]
+water_kg_m2_stem_s = [0.000002, 0.0, -0.000001, 0.000003]
+carbon_mol_m2_stem_s = [0.000001, 0.0, 0.0000005, 0.0000002]
+oxygen_mol_m2_stem_s = [-0.000001, 0.0, -0.0000005, -0.0000002]
+
+[surface]
+description = "Manufactured SurfaceFluxes-style static-energy outputs at the soil face, per m2 ground and second, upward positive."
+sensible_heat_flux_W_m2 = 45.0
+latent_heat_flux_W_m2 = 95.0
+evaporation_kg_m2_s = 0.000038
+carbon_mol_m2_s = 0.000003
+oxygen_mol_m2_s = -0.000003
+
+[air]
+gas_fraction_m3_gas_m3_bulk = 0.96
+
 [validation]
 float32_relative_tolerance = 0.000002
 float64_relative_tolerance = 0.00000000000002
