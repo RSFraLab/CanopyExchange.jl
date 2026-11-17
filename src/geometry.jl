@@ -11,14 +11,14 @@ ground footprint times `thickness`, with no implicit porosity factor. Throws an
 `ArgumentError` for a nonpositive or nonfinite thickness, a negative or nonfinite
 density, or a nonfinite derivative component.
 
-A layer geometry is any type that defines [`thickness`](@ref), [`area_density`](@ref)
-and `Base.eltype`; this one has leaves only, so a stem flux on it is a `MethodError`.
+It implements the geometry interface ([`CanopyExchange.area_density`](@ref)) for
+leaves only, so a stem flux on it is a `MethodError`.
 
 # Examples
 ```jldoctest
 julia> g = LayerGeometry(1.5, 0.8);
 
-julia> (thickness(g), area_density(g, LeafArea))
+julia> (CanopyExchange.thickness(g), CanopyExchange.area_density(g, LeafArea))
 (1.5, 0.8)
 ```
 """
@@ -37,17 +37,18 @@ end
 end
 
 """
-    PlantLayerGeometry(thickness, leaf_area_density, stem_area_density = 0)
+    PlantLayerGeometry(thickness, leaf_area_density, stem_area_density)
+    PlantLayerGeometry(thickness, leaf_area_density)
 
 As [`LayerGeometry`](@ref), with finite nonnegative one-sided `stem_area_density`
-[m² stem m⁻³ bulk canopy volume] (`PAI = LAI + SAI` as in ClimaLand). The two-argument
-form sets the stem area density to zero of the leaf area density's type.
+[m² stem m⁻³ bulk canopy volume] (`PAI = LAI + SAI` as in ClimaLand). The
+two-argument form sets the stem area density to `zero(leaf_area_density)`.
 
 # Examples
 ```jldoctest
 julia> g = PlantLayerGeometry(2.0, 1.2, 0.3);
 
-julia> (area_density(g, StemArea), plant_area_density(g))
+julia> (CanopyExchange.area_density(g, StemArea), plant_area_density(g))
 (0.3, 1.5)
 ```
 """
@@ -85,20 +86,41 @@ for G in (:LayerGeometry, :PlantLayerGeometry)
 end
 
 """
-    thickness(geometry)
+    CanopyExchange.thickness(geometry)
 
-Layer thickness [m] of a layer geometry. Part of the geometry interface; a new
-geometry type either has a `thickness` field or adds a method.
+Layer thickness [m] of a layer geometry; part of the geometry interface (see
+[`CanopyExchange.area_density`](@ref)). The default reads a `thickness` field.
 """
 @inline thickness(g) = g.thickness
 
 """
-    area_density(geometry, ::Type{M}) where {M<:Measure}
+    CanopyExchange.area_density(geometry, ::Type{M}) where {M<:Measure}
 
 One-sided area density [m² element area m⁻³ bulk canopy volume] of the element class
-with measure `M` in `geometry`. Part of the geometry interface: a geometry provides a
-method for every element class it contains, and a flux of a class it does not contain
-is a `MethodError` in [`volume_source`](@ref).
+with measure `M` in `geometry`.
+
+**Geometry interface.** A layer geometry is any type `G` that provides
+
+- [`CanopyExchange.thickness`](@ref)`(g::G)` [m] (or a field `thickness`), and
+- `CanopyExchange.area_density(g::G, ::Type{M})` for every element class `M` it holds.
+
+Both are `public`, not exported: extend them with qualified names. A flux of a class
+the geometry does not hold is a `MethodError` in [`volume_source`](@ref).
+`Base.eltype` is not required. To use a geometry as a scalar in broadcasts
+(`volume_source.(fluxes, g)`), define `Base.Broadcast.broadcastable(g::G) = Ref(g)`
+or pass `Ref(g)`. The package cannot validate an external geometry: it must itself
+guarantee a finite positive thickness and finite nonnegative area densities, of the
+same floating-point type as the fluxes (the kernels check the type, not the values).
+
+# Examples
+```jldoctest
+julia> struct Orchard{FT}; thickness::FT; leaf_area_density::FT; end
+
+julia> CanopyExchange.area_density(g::Orchard, ::Type{LeafArea}) = g.leaf_area_density;
+
+julia> volume_source(leaf_flux(100.0, 2.0e-5), Orchard(2.0, 0.5)).rates.energy
+50.0
+```
 """
 function area_density end
 @inline area_density(g::Geometry, ::Type{LeafArea}) = g.leaf_area_density

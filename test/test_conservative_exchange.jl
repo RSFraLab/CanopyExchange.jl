@@ -197,3 +197,62 @@ end
         end
     end
 end
+
+@testset "Datum shift, surface flux, wet stem and gas fraction against independent expressions" begin
+    for FT in (Float32, Float64), enabled in (false, true)
+        case = exchange_fixture(FT, enabled)
+        plant = plant_fixture(FT, enabled)
+        (; geometry, leaves, boundaries, rtol, atol, config) = case
+        layers, faces, stems, surface = config["layers"], config["faces"], config["stems"], config["surface"]
+        dz, lad = FT.(layers["thickness_m"]), FT.(layers["leaf_area_density_m2_m3"])
+        hv = FT.(layers["vapor_enthalpy_J_kg"])
+        leaf_water, face_water = FT.(layers["water_kg_m2_leaf_s"]), FT.(faces["water_kg_m2_ground_s"])
+        shift = plant.shift
+
+        # Datum shift on every stream before the divergence changes the column energy
+        # budget by exactly shift x column water budget (to rounding).
+        bottom, top = boundaries[1:(end-1)], boundaries[2:end]
+        air = getproperty.(leaf_air_sources.(leaves, geometry), :air)
+        shifted_leaves = shift_water_energy_datum.(leaves, shift)
+        shifted_faces = shift_water_energy_datum.(boundaries, shift)
+        shifted_air = getproperty.(leaf_air_sources.(shifted_leaves, geometry), :air)
+        energy(x) = x.rates.energy
+        original = layer_tendency.(bottom, top, air, geometry)
+        shifted = layer_tendency.(shifted_faces[1:(end-1)], shifted_faces[2:end], shifted_air, geometry)
+        change = sum(dz .* (energy.(shifted) .- energy.(original)))
+        water_budget = face_water[1] - face_water[end] + sum(dz .* lad .* leaf_water)
+        magnitude = sum(abs.(energy.(boundaries))) + sum(abs.(energy.(shifted_faces))) +
+                    sum(dz .* (abs.(energy.(air)) .+ abs.(energy.(shifted_air))))
+        @test isapprox(change, shift * water_budget; rtol, atol = atol * magnitude)
+
+        # SurfaceFluxes boundary: energy = shf + lhf, water = evaporation, tracers as given
+        soil = plant.soil
+        @test soil.rates.energy == FT(surface["sensible_heat_flux_W_m2"]) + FT(surface["latent_heat_flux_W_m2"])
+        @test soil.rates.water == FT(surface["evaporation_kg_m2_s"])
+        @test soil.rates.tracers.co2 == FT(surface["carbon_mol_m2_s"])
+        @test haskey(soil.rates.tracers, :o2) == enabled
+
+        # Transpiring stem: energy = H + E h_v per m² stem, scaled by SAD into the air
+        sad = FT.(stems["stem_area_density_m2_m3"])
+        stem_heat, stem_water = FT.(stems["sensible_heat_W_m2_stem"]), FT.(stems["water_kg_m2_stem_s"])
+        for i in eachindex(plant.wet_stems)
+            stem = plant.wet_stems[i]
+            @test stem.rates.energy == stem_heat[i] + stem_water[i] * hv[i]
+            @test stem.rates.water == stem_water[i]
+            pair = plant_air_sources(leaves[i], stem, plant.geometry[i])
+            @test pair.stem.rates.energy == -(sad[i] * (stem_heat[i] + stem_water[i] * hv[i]))
+            @test pair.stem.rates.water == -(sad[i] * stem_water[i])
+        end
+
+        # Gas fraction below one: multiplying back by the gas fraction recovers the bulk tendency
+        ε = plant.gas_fraction
+        @test ε < one(FT)
+        for t in original
+            m = moist_air_tendencies(t, ε)
+            @test m.rho_total === m.rho_water
+            @test isapprox(m.rho_water * ε, t.rates.water; rtol)
+            @test isapprox(m.rho_energy * ε, t.rates.energy; rtol)
+            @test all(isapprox.(values(m.tracers) .* ε, values(t.rates.tracers); rtol))
+        end
+    end
+end

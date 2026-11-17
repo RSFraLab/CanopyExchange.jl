@@ -16,8 +16,10 @@ fields, and with ForwardDiff dual numbers (through a package extension). It owns
 state, grid, turbulence closure, equation of state or time integrator.
 
 Source files, one per process: `precision.jl` (scalar hooks and the precision
-policy), `rates.jl`, `measures.jl`, `geometry.jl`, `area_to_volume.jl`,
-`flux_divergence.jl`, `boundary_fluxes.jl`, `moist_air.jl`.
+policy), `records.jl` (equality, hashing and broadcasting of every record),
+`rates.jl`, `measures.jl`, `geometry.jl`, `area_to_volume.jl`, `flux_divergence.jl`,
+`water_energy.jl` (vapour enthalpy, surface static energy, energy datum) and
+`moist_air.jl`.
 """
 module CanopyExchange
 
@@ -27,9 +29,8 @@ export Measure, LeafArea, StemArea, GroundArea, BulkVolume
 export Exchange, LeafFlux, StemFlux, FaceFlux, VolumeSource
 export leaf_flux, stem_flux, face_flux, valid_exchange
 
-# Layer geometry interface
-export LayerGeometry, PlantLayerGeometry, layer_geometry
-export thickness, area_density, plant_area_density
+# Layer geometries (the interface functions `thickness` and `area_density` are public)
+export LayerGeometry, PlantLayerGeometry, layer_geometry, plant_area_density
 
 # Area to volume and paired ledgers
 export area_source, volume_source, leaf_area_source, stem_area_source
@@ -43,18 +44,31 @@ export accumulate_steady_fluxes!, accumulate_steady_fluxes
 export sensible_water_flux, sensible_stem_flux, surface_static_energy_flux
 export shift_water_energy_datum, moist_air_tendencies
 
-# Scalar hooks for number types with derivative information (public, not exported)
+# Interfaces extended by other code: the geometry interface and the scalar hooks for
+# number types with derivative information (public, not exported)
 @static if VERSION >= v"1.11"
-    eval(Expr(:public, :primal_type, :primal, :all_finite, :exact_zero))
+    eval(
+        Expr(
+            :public,
+            :thickness,
+            :area_density,
+            :primal_type,
+            :primal,
+            :all_finite,
+            :exact_zero,
+            :scalar_equal,
+        ),
+    )
 end
 
 include("precision.jl")
+include("records.jl")
 include("rates.jl")
 include("measures.jl")
 include("geometry.jl")
 include("area_to_volume.jl")
 include("flux_divergence.jl")
-include("boundary_fluxes.jl")
+include("water_energy.jl")
 include("moist_air.jl")
 
 end

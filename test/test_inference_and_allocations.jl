@@ -5,11 +5,11 @@ using Test, CanopyExchange
 # Helper functions keep @allocated out of @testset scope (Julia 1.10).
 allocations(f::F, args::Vararg{Any,N}) where {F,N} = (f(args...); @allocated f(args...))
 # A type passed through `Vararg{Any}` is not specialized on Julia 1.10; wrap it.
-stem_area_density(g) = area_density(g, StemArea)
+stem_area_density(g) = CanopyExchange.area_density(g, StemArea)
 
-function kernel_cases(::Type{FT}) where {FT}
-    T2 = Tracers(:co2, :o2)
-    tr = T2(FT(-1.2e-5), FT(1.3e-5))
+function kernel_cases(::Type{FT}, ntracers::Int) where {FT}
+    T2 = Tracers(ntuple(i -> Symbol(:t, i), ntracers)...)
+    tr = T2(ntuple(i -> FT(i) * FT(1e-6), ntracers)...)
     rates = ExchangeRates(FT(100), FT(2e-5), tr)
     leaf = sensible_water_flux(FT(80), FT(4e-5), FT(2.5e6), tr)
     stem = sensible_stem_flux(FT(20), FT(1e-6), FT(2.5e6), tr)
@@ -22,7 +22,7 @@ function kernel_cases(::Type{FT}) where {FT}
         (ExchangeRates, (FT(1), FT(2), tr)),
         (ExchangeRates, (FT(1), FT(2))),
         (MoistAirTendencies, (FT(1), FT(1), FT(2), tr)),
-        (T2, (FT(1), FT(2))),
+        (T2, values(tr)),
         (Exchange{LeafArea}, (rates,)),
         (LeafFlux, (rates,)),
         (leaf_flux, (FT(1), FT(2), tr)),
@@ -33,7 +33,7 @@ function kernel_cases(::Type{FT}) where {FT}
         (PlantLayerGeometry, (FT(2), FT(1))),
         (layer_geometry, (FT(2), FT(1))),
         (layer_geometry, (FT(2), FT(1), FT(0.5))),
-        (thickness, (pg,)),
+        (CanopyExchange.thickness, (pg,)),
         (stem_area_density, (pg,)),
         (plant_area_density, (pg,)),
         (area_source, (FT(150), FT(0.8))),
@@ -69,6 +69,13 @@ function kernel_cases(::Type{FT}) where {FT}
         (zero, (moist,)),
         (zero, (typeof(leaf),)),
         (==, (leaf, leaf)),
+        (==, (g, g)),
+        (isequal, (leaf, leaf)),
+        (isequal, (moist, moist)),
+        (hash, (leaf,)),
+        (hash, (pg,)),
+        (hash, (moist,)),
+        (sensible_water_flux, (StemArea(), FT(20), FT(1e-6), FT(2.5e6), tr)),
         (CanopyExchange.all_finite, (FT(1),)),
         (CanopyExchange.exact_zero, (FT(0),)),
         (CanopyExchange.primal, (FT(1),)),
@@ -76,14 +83,18 @@ function kernel_cases(::Type{FT}) where {FT}
 end
 
 element_type(x::Bool) = Bool
+element_type(x::UInt) = UInt
 element_type(x::Type) = Type
 element_type(x::NamedTuple) = eltype(first(values(x)))
 element_type(x) = eltype(x)
 
-@testset "Inference, result type and allocations: $FT" for FT in (Float32, Float64)
-    for (f, args) in kernel_cases(FT)
+# Two tracers (co2, o2) and twelve tracers; Julia's tuple limit is 31 (see ExchangeRates).
+@testset "Inference, result type and allocations: $FT, $n tracers" for FT in (Float32, Float64),
+    n in (2, 12)
+
+    for (f, args) in kernel_cases(FT, n)
         result = @inferred f(args...)
-        @test element_type(result) in (FT, Bool)
+        @test element_type(result) in (FT, Bool, UInt)
         @test isbits(result)
         @test allocations(f, args...) == 0
     end

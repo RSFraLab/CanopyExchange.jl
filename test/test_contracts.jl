@@ -2,6 +2,11 @@
 # the first review round broke the v1 prototype (canopy-refactor/prototype/check.jl).
 using Test, ForwardDiff, CanopyExchange
 
+# An external layer geometry with a thickness only and no Base.eltype.
+struct BareGeometry
+    thickness::Float64
+end
+
 @testset "Precision policy in constructors and every kernel" begin
     T = Tracers(:co2)
     r64 = ExchangeRates(100.0, 2e-5, T(-1e-5))
@@ -42,8 +47,17 @@ using Test, ForwardDiff, CanopyExchange
     @test_throws ArgumentError surface_static_energy_flux(45, 95, 0.0)
     @test_throws ArgumentError leaf_flux(1.0f0, 2.0)
     @test_throws ArgumentError layer_geometry(1.0f0, 0.5)
-    # integers and booleans are not exchange scalars
+    # integers and booleans are not exchange scalars, in any argument position
     @test_throws ArgumentError ExchangeRates(1, 2)
+    @test_throws ArgumentError("canopy exchange scalars must be floating point") ExchangeRates(1.0, 2)
+    @test_throws ArgumentError("canopy exchange scalars must be floating point") ExchangeRates(1.0, 2.0, T(1))
+    @test_throws ArgumentError("canopy exchange scalars must be floating point") conserved_tendency(1.0, 2, 3.0, g64)
+    @test_throws ArgumentError("mixed floating-point precision in canopy exchange") ExchangeRates(1.0, 2.0f0)
+    # tracer values must be real scalars
+    for bad in ([1.0, 2.0], (1.0, 2.0), nothing, "x", 1.0 + 0im, missing, r64)
+        @test_throws ArgumentError("tracer values must be real scalars") ExchangeRates(1.0, 2.0, (; a = bad))
+    end
+    @test_throws ArgumentError Tracers(:co2, :co2)
     @test_throws ArgumentError ExchangeRates(true, false)
     @test_throws ArgumentError LayerGeometry(1, 0)
     @test_throws ArgumentError moist_air_tendencies(VolumeSource(r64), 1)
@@ -64,6 +78,18 @@ end
     @test_throws MethodError volume_source(stem, g64)
     @test_throws MethodError volume_source(FaceFlux(r64), pg)
     @test_throws MethodError volume_source(VolumeSource(r64), pg)
+    # scalar kernels take scalars only, so a record cannot lose its measure tag
+    @test_throws MethodError area_source(leaf, 0.5)
+    @test_throws MethodError leaf_area_source(leaf, g64)
+    @test_throws MethodError stem_area_source(stem, pg)
+    @test_throws MethodError conserved_tendency(FaceFlux(r64), FaceFlux(r64), FaceFlux(r64), g64)
+    @test_throws MethodError conserved_tendency(VolumeSource(r64), VolumeSource(r64), VolumeSource(r64), g64)
+    # a measure-tagged record needs a concrete measure
+    @test_throws ArgumentError Exchange{CanopyExchange.Measure}(r64)
+    @test_throws ArgumentError Exchange{Union{}}(r64)
+    # conversion returns exactly the requested type or throws
+    @test convert(typeof(r64), r64) === r64
+    @test_throws ArgumentError convert(ExchangeRates{Float64,NamedTuple{(:co2,),Tuple{Float32}}}, r64)
     s = plant_air_sources(leaf, stem, pg)
     @test iszero(s.air.rates.energy + s.leaf.rates.energy + s.stem.rates.energy)
     @test volume_source(leaf, pg) == -s.leaf
@@ -73,8 +99,8 @@ end
     o2_first = LeafFlux(ExchangeRates(100.0, 2e-5, Tracers(:o2, :co2)(0.0, -1e-5)))
     @test typeof(leaf) !== typeof(with_o2)
     @test typeof(with_o2) !== typeof(o2_first)
-    @test_throws ArgumentError leaf + with_o2
-    @test_throws ArgumentError with_o2 + o2_first
+    @test_throws ArgumentError("tracer sets of canopy exchange records differ") leaf + with_o2
+    @test_throws ArgumentError("tracer sets of canopy exchange records differ") with_o2 + o2_first
     @test with_o2 != o2_first
     @test_throws ArgumentError plant_air_sources(with_o2, stem, pg)
     # tracer names cannot overwrite host fields
@@ -109,7 +135,9 @@ end
     @test sum([VolumeSource(r64), VolumeSource(r64)]).rates.energy === 200.0
     @test zero(typeof(leaf)) === zero(leaf)
     @test Exchange{LeafArea,typeof(r64)}(r64) === leaf
-    @test map(x -> 2x, r64) === 2.0 * r64
+    # Records are not collections: no map, iteration or length
+    @test_throws MethodError map(x -> 2x, r64)
+    @test_throws MethodError collect(r64)
     m = moist_air_tendencies(VolumeSource(r64), 0.5)
     @test (m + m).rho_energy === 400.0 && (2.0 * m).rho_total === 2 * m.rho_total
     @test moist_air_tendencies(VolumeSource(r64)) === moist_air_tendencies(VolumeSource(r64), 1.0)
@@ -117,6 +145,40 @@ end
     # records are scalars in broadcasts
     @test (r -> r.energy).(LeafFlux(r64).rates) === 100.0
     @test getproperty.(leaf_air_sources.([leaf, leaf], g64), :air) == fill(volume_source(leaf, g64), 2)
+end
+
+@testset "Steady accumulation accepts what the in-place version accepts" begin
+    T = Tracers(:co2)
+    face = face_flux(10.0, 1e-5, T(1e-6))
+    source = VolumeSource(ExchangeRates(5.0, 2e-5, T(-1e-6)))
+    sources = [source, source, source]
+    leaf_only, plant = LayerGeometry(2.0, 0.5), PlantLayerGeometry(2.0, 0.5, 0.25)
+    expected = [10.0, 20.0, 30.0, 40.0]
+    energies(faces) = [f.rates.energy for f in faces]
+    for geometries in (
+        [leaf_only, plant, leaf_only],
+        LayerGeometry[leaf_only, leaf_only, leaf_only],
+        Any[leaf_only, plant, leaf_only],
+        [(; thickness = 2.0, leaf_area_density = 0.5) for _ in 1:3],
+    )
+        faces = accumulate_steady_fluxes(face, sources, geometries)
+        @test energies(faces) == expected
+        @test eltype(faces) === typeof(face)
+        inplace = accumulate_steady_fluxes!(similar(faces), face, sources, geometries)
+        @test inplace == faces
+    end
+    @test energies(accumulate_steady_fluxes(face, VolumeSource[source, source, source], [plant, plant, plant])) == expected
+    @test accumulate_steady_fluxes(face, VolumeSource[], LayerGeometry[]) == [face]
+    @test accumulate_steady_fluxes(face, typeof(source)[], Any[]) == [face]
+    # external geometry without Base.eltype
+    @test energies(accumulate_steady_fluxes(face, sources, fill(BareGeometry(2.0), 3))) == expected
+    # dual thickness promotes the faces
+    d(v, p) = ForwardDiff.Dual{Nothing}(v, p)
+    dual_faces = accumulate_steady_fluxes(face, sources, [LayerGeometry(d(2.0, 1.0), 0.5) for _ in 1:3])
+    @test dual_faces[end].rates.energy == d(40.0, 15.0)
+    # mixed precision is still rejected
+    @test_throws ArgumentError accumulate_steady_fluxes(face, sources, fill(LayerGeometry(2.0f0, 0.5f0), 3))
+    @test_throws ArgumentError accumulate_steady_fluxes(face, sources, [(; thickness = 2) for _ in 1:3])
 end
 
 @testset "Automatic differentiation contracts" begin
@@ -151,6 +213,18 @@ end
     @test PlantLayerGeometry(d(1.0, 0.0), d(0.0, -1.0), d(0.0, 0.0)) isa PlantLayerGeometry
     @test_throws ArgumentError moist_air_tendencies(v, d(1.5, 0.0))
     @test_throws ArgumentError LayerGeometry(d(0.0, 1.0), 1.0)
+    # record equality compares values and derivative components on every ForwardDiff
+    # version; a plain number has zero derivative components
+    plain = leaf_flux(1.0, 2.0, (; co2 = 3.0))
+    @test leaf_flux(d(1.0, 5.0), 2.0, (; co2 = 3.0)) != plain
+    @test plain != leaf_flux(d(1.0, 5.0), 2.0, (; co2 = 3.0))
+    @test leaf_flux(d(1.0, 0.0), 2.0, (; co2 = 3.0)) == plain
+    @test plain == leaf_flux(d(1.0, -0.0), 2.0, (; co2 = 3.0))
+    @test !isequal(plain, leaf_flux(d(1.0, -0.0), 2.0, (; co2 = 3.0)))
+    @test leaf_flux(d(1.0, 5.0), 2.0) != leaf_flux(d(1.0, 4.0), 2.0)
+    @test CanopyExchange.scalar_equal(==, d(1.0, 0.0), 1.0)
+    @test !CanopyExchange.scalar_equal(==, d(1.0, 1.0), 1.0)
+    @test length(Set([plain, leaf_flux(d(1.0, 5.0), 2.0, (; co2 = 3.0))])) == 2
     # gradient against central differences and a finite Hessian through the pipeline
     function pipeline(x)
         sh_leaf, evap, hv, sh_stem, lad, sad, dz, ε = x

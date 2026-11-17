@@ -144,15 +144,17 @@ end
     @test d_neg == d_pos
     @test hash(d_neg) == hash(d_pos)
 
-    # Record equality is componentwise scalar `==`. ForwardDiff 1.x compares partials
-    # (so a nonzero partial differs from a plain zero); ForwardDiff 0.10 compares values.
+    # Record equality compares values and derivative components through the
+    # `scalar_equal` hook, identically on ForwardDiff 0.10 and 1.x.
     d_f64 = LeafFlux(ExchangeRates(0.0, 1.0, (; co2 = -2.0)))
-    @test (d_pos != d_f64) == (mkdual(0.0, 1.0) != 0.0)
-    @test d_pos != d_f64 || hash(d_pos) == hash(d_f64)
+    @test d_pos != d_f64 # nonzero partial != zero partial
+    @test !isequal(d_pos, d_f64)
     d_zero_partial = LeafFlux(
         ExchangeRates(mkdual(0.0, 0.0), mkdual(1.0, 0.0), (; co2 = mkdual(-2.0, 0.0))),
     )
     @test d_zero_partial == d_f64
+    @test d_f64 == d_zero_partial
+    @test isequal(d_zero_partial, d_f64)
     @test hash(d_zero_partial) == hash(d_f64)
 
     nan1 = LeafFlux(ExchangeRates(NaN, 1.0, (; co2 = 0.0)))
@@ -380,12 +382,17 @@ end
         end
     end
 
-    # Zero-allocation check on scalar kernels
+    # Zero-allocation check on scalar kernels (datum shifted on the streams first)
     function alloc_kernel(lf, sf, pg, bot)
-        p = plant_air_sources(lf, sf, pg)
-        top = steady_top_flux(bot, p.air, pg)
-        t = layer_tendency(bot, top, p.air, pg)
-        return moist_air_tendencies(shift_water_energy_datum(t, 100.0), 0.95)
+        p = plant_air_sources(
+            shift_water_energy_datum(lf, 100.0),
+            shift_water_energy_datum(sf, 100.0),
+            pg,
+        )
+        bottom = shift_water_energy_datum(bot, 100.0)
+        top = steady_top_flux(bottom, p.air, pg)
+        t = layer_tendency(bottom, top, p.air, pg)
+        return moist_air_tendencies(t, 0.95)
     end
     measure_alloc_kernel(lf, sf, pg, bot) = @allocated alloc_kernel(lf, sf, pg, bot)
     T2 = Tracers(:co2, :o2)

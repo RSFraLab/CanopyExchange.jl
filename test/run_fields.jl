@@ -22,7 +22,7 @@ air_of(s) = s.air
 # field broadcasts reject a type or a keyword argument in the function position.
 function pipeline(h, w, hv, c, o, fb, ft, dz, lad, sad)
     leaf = sensible_water_flux.(h, w, hv, T2.(c, o))
-    stem = sensible_stem_flux.(h, T2.(o, c))
+    stem = sensible_stem_flux.(h, T2.(o, c)) .+ sensible_water_flux.(StemArea(), h, w, hv, T2.(c, o))
     g = layer_geometry.(dz, lad)
     pg = layer_geometry.(dz, lad, sad)
     src = leaf_air_sources.(leaf, g)

@@ -3,11 +3,12 @@
 # ============================================================================
 
 """
-    conserved_tendency(bottom, top, source, geometry)
+    conserved_tendency(bottom::Real, top::Real, source::Real, geometry)
 
 Finite-volume tendency `(bottom - top) / thickness + source` of one conserved scalar.
 `bottom` and `top` are upward-positive face fluxes per m² ground area and second;
-`source` and the result are per m³ bulk canopy volume and second. Summing
+`source` and the result are per m³ bulk canopy volume and second. Records go through
+[`layer_tendency`](@ref), which keeps their measure tags. Summing
 `thickness * tendency` over stacked layers cancels every interior face flux.
 
 # Examples
@@ -16,7 +17,7 @@ julia> conserved_tendency(15.0, 12.0, 4.0, LayerGeometry(1.5, 0.8))
 6.0
 ```
 """
-@inline function conserved_tendency(bottom, top, source, g)
+@inline function conserved_tendency(bottom::Real, top::Real, source::Real, g)
     same_precision(bottom, top, source, thickness(g))
     return (bottom - top) / thickness(g) + source
 end
@@ -48,7 +49,7 @@ julia> layer_tendency(b, t, VolumeSource(ExchangeRates(10.0, 0.0)), LayerGeometr
 ```
 """
 @inline function layer_tendency(bottom::FaceFlux, top::FaceFlux, source::VolumeSource, g)
-    rates = map(LayerDivergence(g), bottom.rates, top.rates, source.rates)
+    rates = _componentwise(LayerDivergence(g), bottom.rates, top.rates, source.rates)
     return VolumeSource(rates)
 end
 
@@ -143,7 +144,10 @@ end
 Allocate and fill a 1-based `N + 1` steady face-flux profile from `bottom` to the
 canopy top (see [`accumulate_steady_fluxes!`](@ref) for the contract). The element
 type promotes `bottom`, the sources and the geometries, so a dual-valued source or
-geometry gives dual-valued faces. Pass a preallocated vector (for example an
+geometry gives dual-valued faces. The element type is derived from the values
+(`bottom`, each source and each `thickness(geometry)`), so it accepts every input that
+[`accumulate_steady_fluxes!`](@ref) accepts: abstract or mixed geometry vectors,
+external geometry types and empty vectors. Pass a preallocated vector (for example an
 `OffsetVector`) to [`accumulate_steady_fluxes!`](@ref) for other face index axes.
 
 # Examples
@@ -167,9 +171,10 @@ function accumulate_steady_fluxes(
     axes(sources, 1) == axes(geometries, 1) || throw(
         DimensionMismatch("sources and geometries must share identical first-dimension axes"),
     )
-    FB, FS, FG = eltype(bottom), eltype(eltype(sources)), eltype(eltype(geometries))
-    same_precision(zero(FB), zero(FS), zero(FG))
-    FT = promote_type(FB, FS, FG)
+    FT = eltype(bottom)
+    for k in eachindex(sources, geometries)
+        FT = promote_type(FT, eltype(sources[k]), typeof(thickness(geometries[k])))
+    end
     R = ExchangeRates{FT,_tracer_type(typeof(bottom.rates.tracers), FT)}
     faces = Vector{FaceFlux{R}}(undef, length(sources) + 1)
     return accumulate_steady_fluxes!(faces, bottom, sources, geometries)

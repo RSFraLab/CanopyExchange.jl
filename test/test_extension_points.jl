@@ -5,12 +5,14 @@ using Test, CanopyExchange
 
 struct FruitArea <: CanopyExchange.Measure end
 
+# The geometry interface: `thickness` (here a field), `area_density` per element class,
+# and `broadcastable` to act as a scalar in broadcasts. No `Base.eltype` is needed.
 struct OrchardGeometry{FT}
     thickness::FT
     leaf_area_density::FT
     fruit_area_density::FT
 end
-Base.eltype(::Type{OrchardGeometry{FT}}) where {FT} = FT
+Base.Broadcast.broadcastable(g::OrchardGeometry) = Ref(g)
 CanopyExchange.area_density(g::OrchardGeometry, ::Type{LeafArea}) = g.leaf_area_density
 CanopyExchange.area_density(g::OrchardGeometry, ::Type{FruitArea}) = g.fruit_area_density
 
@@ -89,57 +91,70 @@ end
     for FT in (Float32, Float64)
         config = fixture_config()
         layers, faces, fruit = config["layers"], config["faces"], config["third_element_class"]
+        precision = FT === Float32 ? "float32" : "float64"
+        rtol = FT(config["validation"][precision*"_relative_tolerance"])
+        atol = FT(config["validation"][precision*"_scaled_absolute_tolerance"])
         dz = FT.(layers["thickness_m"])
-        geometry = OrchardGeometry.(dz, FT.(layers["leaf_area_density_m2_m3"]),
-            FT.(fruit["fruit_area_density_m2_m3"]))
+        lad, fad = FT.(layers["leaf_area_density_m2_m3"]), FT.(fruit["fruit_area_density_m2_m3"])
+        hv = FT.(layers["vapor_enthalpy_J_kg"])
+        leaf_heat, leaf_water, leaf_co2 = (FT.(layers[k]) for k in
+            ("sensible_heat_W_m2_leaf", "water_kg_m2_leaf_s", "carbon_mol_m2_leaf_s"))
+        fruit_heat, fruit_water, fruit_co2 = (FT.(fruit[k]) for k in
+            ("sensible_heat_W_m2_fruit", "water_kg_m2_fruit_s", "carbon_mol_m2_fruit_s"))
+        face_energy, face_water, face_co2 = (FT.(faces[k]) for k in
+            ("energy_W_m2_ground", "water_kg_m2_ground_s", "carbon_mol_m2_ground_s"))
+        geometry = OrchardGeometry.(dz, lad, fad)
         T = Tracers(:co2)
-        leaves = sensible_water_flux.(
-            FT.(layers["sensible_heat_W_m2_leaf"]),
-            FT.(layers["water_kg_m2_leaf_s"]),
-            FT.(layers["vapor_enthalpy_J_kg"]),
-            T.(FT.(layers["carbon_mol_m2_leaf_s"])),
-        )
-        fruits = Exchange{FruitArea}.(
-            ExchangeRates.(
-                FT.(fruit["sensible_heat_W_m2_fruit"]) .+
-                FT.(fruit["water_kg_m2_fruit_s"]) .* FT.(layers["vapor_enthalpy_J_kg"]),
-                FT.(fruit["water_kg_m2_fruit_s"]),
-                T.(FT.(fruit["carbon_mol_m2_fruit_s"])),
-            ),
-        )
-        boundaries = face_flux.(
-            FT.(faces["energy_W_m2_ground"]),
-            FT.(faces["water_kg_m2_ground_s"]),
-            T.(FT.(faces["carbon_mol_m2_ground_s"])),
-        )
+        leaves = sensible_water_flux.(leaf_heat, leaf_water, hv, T.(leaf_co2))
+        # The enthalpy-enforcing constructor takes a measure instance (broadcast-safe).
+        fruits = sensible_water_flux.(FruitArea(), fruit_heat, fruit_water, hv, T.(fruit_co2))
+        boundaries = face_flux.(face_energy, face_water, T.(face_co2))
+        @test eltype(fruits) <: Exchange{FruitArea}
         from_leaf = volume_source.(leaves, geometry)
         from_fruit = volume_source.(fruits, geometry)
         air = from_leaf .+ from_fruit
+        # Independent per-layer sources from the TOML inputs: density x (H + E h_v), E, CO2
+        components(x) = (x.rates.energy, x.rates.water, x.rates.tracers.co2)
         for i in eachindex(geometry)
+            fruit_expected = (
+                fad[i] * (fruit_heat[i] + fruit_water[i] * hv[i]),
+                fad[i] * fruit_water[i],
+                fad[i] * fruit_co2[i],
+            )
+            leaf_expected = (
+                lad[i] * (leaf_heat[i] + leaf_water[i] * hv[i]),
+                lad[i] * leaf_water[i],
+                lad[i] * leaf_co2[i],
+            )
+            @test components(from_fruit[i]) == fruit_expected
+            @test components(from_leaf[i]) == leaf_expected
             @test @inferred(volume_source(fruits[i], geometry[i])) isa VolumeSource
-            @test from_fruit[i].rates.energy ===
-                  area_source(fruits[i].rates.energy, geometry[i].fruit_area_density)
-            @test from_leaf[i] == leaf_air_sources(leaves[i], geometry[i]).air
-            ledger = air[i] + (-from_leaf[i] + -from_fruit[i])
-            @test abs(ledger.rates.energy) <= eps(FT) * abs(air[i].rates.energy)
         end
+        # Column budgets of energy, water and CO2: interior faces cancel, both element
+        # classes enter once.
         tendency = layer_tendency.(boundaries[1:(end-1)], boundaries[2:end], air, geometry)
         @test eltype(eltype(tendency)) === FT
-        # Column budget: interior faces cancel, both element classes enter once.
-        integral = sum(dz .* getproperty.(getproperty.(tendency, :rates), :energy))
-        expected = boundaries[1].rates.energy - boundaries[end].rates.energy +
-                   sum(dz .* getproperty.(getproperty.(air, :rates), :energy))
-        rtol = FT(config["validation"][FT === Float32 ? "float32_relative_tolerance" :
-                                                         "float64_relative_tolerance"])
-        @test isapprox(integral, expected; rtol)
+        steady = accumulate_steady_fluxes(boundaries[1], air, geometry)
+        for (j, face_values, leaf_rate, fruit_rate) in (
+            (1, face_energy, leaf_heat .+ leaf_water .* hv, fruit_heat .+ fruit_water .* hv),
+            (2, face_water, leaf_water, fruit_water),
+            (3, face_co2, leaf_co2, fruit_co2),
+        )
+            plant = sum(dz .* (lad .* leaf_rate .+ fad .* fruit_rate))
+            scale = maximum(abs, face_values) + sum(abs.(dz .* (lad .* leaf_rate .+ fad .* fruit_rate)))
+            integral = sum(dz[i] * components(tendency[i])[j] for i in eachindex(dz))
+            @test isapprox(integral, face_values[1] - face_values[end] + plant; rtol, atol = atol * scale)
+            # Steady column: canopy-top flux = bottom flux + all plant sources
+            @test isapprox(components(steady[end])[j], face_values[1] + plant; rtol, atol = atol * scale)
+        end
         # Measure safety for the new class
         @test_throws MethodError leaves[2] + fruits[2]
         @test_throws MethodError volume_source(fruits[2], LayerGeometry(dz[2], one(FT)))
         @test_throws MethodError leaf_air_sources(fruits[2], geometry[2])
         # Empty fruit layer: nonfinite dummy fruit flux contributes exact zeros
         dummy = Exchange{FruitArea}(ExchangeRates(FT(NaN), FT(Inf), T(FT(NaN))))
-        @test valid_exchange(volume_source(dummy, geometry[1]))
-        steady = accumulate_steady_fluxes(boundaries[1], air, geometry)
-        @test length(steady) == length(geometry) + 1
+        @test components(volume_source(dummy, geometry[1])) == (zero(FT), zero(FT), zero(FT))
+        # A geometry with `broadcastable` is a scalar in broadcasts
+        @test volume_source.(fruits, geometry[2]) == [volume_source(f, geometry[2]) for f in fruits]
     end
 end

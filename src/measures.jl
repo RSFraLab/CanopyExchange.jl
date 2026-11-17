@@ -7,11 +7,20 @@
 
 Supertype of the spatial measures that exchange rates are expressed per:
 [`LeafArea`](@ref), [`StemArea`](@ref), [`GroundArea`](@ref), [`BulkVolume`](@ref).
-A new element class (fruit, flowers, a second leaf population) is a new subtype; a
-geometry that provides [`area_density`](@ref) for it converts its fluxes to volume
+
+A new kind of element surface (fruit, flowers) is a new subtype; a geometry that
+provides [`CanopyExchange.area_density`](@ref) for it converts its fluxes to volume
 sources with [`volume_source`](@ref), without changes to this package.
+
+Several populations of the same element (sunlit and shaded leaves, cohorts) share
+`LeafArea`; they are not new subtypes. Their fluxes are per m² of their own leaf area,
+so the layer source is the sum over classes `c` of
+`volume_source(F_c, LayerGeometry(Δz, LAD_c))`. Adding the `LeafFlux`es of different
+populations without their area weights is wrong.
 """
 abstract type Measure end
+# A measure instance is a scalar in broadcasts (e.g. `sensible_water_flux.(StemArea(), ...)`).
+Base.Broadcast.broadcastable(m::Measure) = Ref(m)
 
 """
     LeafArea <: Measure
@@ -65,7 +74,13 @@ julia> (2.0 * f).rates.energy
 """
 struct Exchange{M<:Measure,R<:ExchangeRates} <: ScalarRecord
     rates::R
+    function Exchange{M,R}(rates::ExchangeRates) where {M<:Measure,R<:ExchangeRates}
+        isconcretetype(M) || throw(ArgumentError("the measure must be a concrete Measure type"))
+        return new{M,R}(_as(R, rates))
+    end
 end
+@inline _as(::Type{R}, rates::R) where {R} = rates
+@inline _as(::Type{R}, rates) where {R} = convert(R, rates)
 Exchange{M}(rates::R) where {M<:Measure,R<:ExchangeRates} = Exchange{M,R}(rates)
 
 """
@@ -109,8 +124,10 @@ const VolumeSource = Exchange{BulkVolume}
 
 Base.eltype(::Type{<:Exchange{<:Any,R}}) where {R} = eltype(R)
 _measure(::Exchange{M}) where {M} = M
-# Direct method avoids a recursive call cycle through the generic record `==`.
-Base.:(==)(a::Exchange, b::Exchange) = _measure(a) === _measure(b) && a.rates == b.rates
+# Direct methods avoid a recursive call cycle through the generic record methods.
+@inline _record_equal(compare, a::Exchange, b::Exchange) =
+    _measure(a) === _measure(b) && _record_equal(compare, a.rates, b.rates)
+Base.hash(a::Exchange, h::UInt) = hash(a.rates, hash(nameof(_measure(a)), hash(:Exchange, h)))
 
 for op in (:+, :-)
     @eval @inline Base.$op(a::Exchange{M}, b::Exchange{M}) where {M} =
@@ -138,8 +155,9 @@ Base.convert(::Type{Exchange{M,R}}, x::Exchange{M}) where {M,R} =
     leaf_flux(energy, water, tracers::NamedTuple = (;)) -> LeafFlux
 
 Function form of `LeafFlux(ExchangeRates(energy, water, tracers))` for broadcasts:
-energy [W m⁻² leaf] including transported vapour enthalpy, water
-[kg H₂O m⁻² leaf s⁻¹], tracers [mol m⁻² leaf s⁻¹]; positive from leaf into air.
+`energy` [W m⁻² leaf] is the total transfer including the enthalpy of transported
+vapour, water [kg H₂O m⁻² leaf s⁻¹], tracers [mol m⁻² leaf s⁻¹]; positive from leaf
+into air. To build `energy` from sensible heat use [`sensible_water_flux`](@ref).
 """
 @inline leaf_flux(energy, water, tracers::NamedTuple = (;)) =
     LeafFlux(ExchangeRates(energy, water, tracers))
@@ -148,7 +166,9 @@ energy [W m⁻² leaf] including transported vapour enthalpy, water
     stem_flux(energy, water, tracers::NamedTuple = (;)) -> StemFlux
 
 Function form of `StemFlux(ExchangeRates(energy, water, tracers))` for broadcasts:
-per m² one-sided stem area and second, positive from stem into air.
+per m² one-sided stem area and second, positive from stem into air. `energy` is the
+total transfer including the enthalpy of transported vapour; to build it from
+sensible heat use [`sensible_stem_flux`](@ref) or [`sensible_water_flux`](@ref).
 """
 @inline stem_flux(energy, water, tracers::NamedTuple = (;)) =
     StemFlux(ExchangeRates(energy, water, tracers))
@@ -157,7 +177,10 @@ per m² one-sided stem area and second, positive from stem into air.
     face_flux(energy, water, tracers::NamedTuple = (;)) -> FaceFlux
 
 Function form of `FaceFlux(ExchangeRates(energy, water, tracers))` for broadcasts:
-per m² ground area and second, positive upward.
+per m² ground area and second, positive upward. `energy` is the total transfer
+including the enthalpy of transported vapour; to build it from sensible heat use
+[`sensible_water_flux`](@ref) with `GroundArea()`, or
+[`surface_static_energy_flux`](@ref) for SurfaceFluxes.jl output.
 """
 @inline face_flux(energy, water, tracers::NamedTuple = (;)) =
     FaceFlux(ExchangeRates(energy, water, tracers))

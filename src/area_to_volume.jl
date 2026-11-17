@@ -3,10 +3,12 @@
 # ============================================================================
 
 """
-    area_source(rate, area_density)
+    area_source(rate::Real, area_density::Real)
 
 Convert a scalar transfer per m² one-sided element area and second into a source per
 m³ bulk canopy volume and second by multiplying by `area_density` [m² m⁻³] once.
+Both arguments are scalars; records go through [`volume_source`](@ref), which keeps
+their measure tags.
 
 Empty-layer rule: when `area_density` is an exact zero (value and every derivative
 component zero, see [`CanopyExchange.exact_zero`](@ref)) the result is an exact zero,
@@ -23,7 +25,7 @@ julia> area_source(NaN, 0.0)
 0.0
 ```
 """
-@inline function area_source(rate, density)
+@inline function area_source(rate::Real, density::Real)
     same_precision(rate, density)
     source = rate * density
     return ifelse(exact_zero(density), zero(source), source)
@@ -33,10 +35,10 @@ end
     volume_source(flux::Exchange{M}, geometry) -> VolumeSource
 
 Volume source of one element class: every component of `flux` times the area density
-`area_density(geometry, M)` of its own class, through [`area_source`](@ref) (so the
-empty-layer rule applies). Positive into canopy air. A flux of a class the geometry
-does not contain is a `MethodError`; a [`FaceFlux`](@ref) or a
-[`VolumeSource`](@ref) is not an element flux.
+`CanopyExchange.area_density(geometry, M)` of its own class, through
+[`area_source`](@ref) (so the empty-layer rule applies). Positive into canopy air. A
+flux of a class the geometry does not hold is a `MethodError`; a
+[`FaceFlux`](@ref) or a [`VolumeSource`](@ref) is not an element flux.
 
 # Examples
 ```jldoctest
@@ -48,11 +50,11 @@ julia> (s.rates.energy, s.rates.tracers.co2)
 """
 @inline function volume_source(flux::Exchange{M}, g) where {M}
     same_precision(flux, thickness(g))
-    return VolumeSource(map(Base.Fix2(area_source, area_density(g, M)), flux.rates))
+    return VolumeSource(_componentwise(Base.Fix2(area_source, area_density(g, M)), flux.rates))
 end
 
 """
-    leaf_area_source(leaf_rate, geometry)
+    leaf_area_source(leaf_rate::Real, geometry)
 
 [`area_source`](@ref) of one scalar leaf rate [per m² leaf s⁻¹] with the leaf area
 density of `geometry`: a bulk-volume source [per m³ s⁻¹], positive into canopy air.
@@ -64,10 +66,10 @@ julia> leaf_area_source(2.0e-5, LayerGeometry(1.5, 0.5))
 1.0e-5
 ```
 """
-@inline leaf_area_source(rate, g) = area_source(rate, area_density(g, LeafArea))
+@inline leaf_area_source(rate::Real, g) = area_source(rate, area_density(g, LeafArea))
 
 """
-    stem_area_source(stem_rate, geometry)
+    stem_area_source(stem_rate::Real, geometry)
 
 [`area_source`](@ref) of one scalar stem rate [per m² stem s⁻¹] with the stem area
 density of `geometry`. A geometry without stems is a `MethodError`.
@@ -78,7 +80,7 @@ julia> stem_area_source(40.0, PlantLayerGeometry(2.0, 1.2, 0.25))
 10.0
 ```
 """
-@inline stem_area_source(rate, g) = area_source(rate, area_density(g, StemArea))
+@inline stem_area_source(rate::Real, g) = area_source(rate, area_density(g, StemArea))
 
 """
     leaf_air_sources(leaf::LeafFlux, geometry) -> (; air, leaf)
@@ -108,9 +110,10 @@ end
 Paired ledgers of a leaf-and-stem layer. The leaf flux is scaled by the leaf area
 density and the stem flux by the stem area density, each with its own empty-layer
 rule. `air` is the sum of both contributions; `leaf` and `stem` are the exact
-negations of their own contributions, so `air + (leaf + stem)` is zero to round-off
-(one rounding in the sum `air`). Leaf and stem fluxes must carry the same tracers. A
-geometry without stems is a `MethodError`.
+negations of their own contributions. Hence `air + (leaf + stem)` is exactly zero
+(the sum `leaf + stem` is the exact negation of `air`), while other groupings such as
+`(air + leaf) + stem` are zero only to rounding. Leaf and stem fluxes must carry the
+same tracers. A geometry without stems is a `MethodError`.
 
 # Examples
 ```jldoctest
