@@ -1,10 +1,18 @@
-# Optional CUDA check; CUDA belongs to the caller's verification environment.
+# Optional CUDA check, not part of Pkg.test(). It builds its own temporary environment
+# with CUDA and this checkout of CanopyExchange:
+#     julia --startup-file=no test/run_cuda.jl
+using Pkg
+Pkg.activate(; temp = true)
+Pkg.develop(PackageSpec(path = dirname(@__DIR__)); io = devnull)
+Pkg.add(["CUDA", "TOML"]; io = devnull)
+
 using CUDA, Test
 using CanopyExchange
 include("exchange_fixture.jl")
 
 CUDA.functional() || error("CUDA is required for this verification")
 CUDA.allowscalar(false)
+println("CUDA ", pkgversion(CUDA), ", Julia ", VERSION, ", ", CUDA.name(CUDA.device()))
 
 @testset "Conservative exchange CUDA Float32/Float64" begin
     for FT in (Float32, Float64), enabled in (false, true)
@@ -36,38 +44,36 @@ CUDA.allowscalar(false)
         layers = case.config["layers"]
         device_heat = CuArray(FT.(layers["sensible_heat_W_m2_leaf"]))
         device_water = CuArray(FT.(layers["water_kg_m2_leaf_s"]))
-        device_carbon = CuArray(FT.(layers["carbon_mol_m2_leaf_s"]))
-        device_oxygen = CuArray([leaf.rates.oxygen for leaf in case.leaves])
+        device_tracers = CuArray([leaf.rates.tracers for leaf in case.leaves])
         device_enthalpy = CuArray(FT.(layers["vapor_enthalpy_J_kg"]))
         constructed = Array(
-            sensible_water_flux.(
-                device_heat,
-                device_water,
-                device_carbon,
-                device_oxygen,
-                device_enthalpy,
-            ),
+            sensible_water_flux.(device_heat, device_water, device_enthalpy, device_tracers),
         )
+        # Positional tracer construction inside the broadcast
+        names = enabled ? Tracers(:co2, :o2) : Tracers(:co2)
+        device_co2 = CuArray(FT.(layers["carbon_mol_m2_leaf_s"]))
+        device_o2 = CuArray(FT.(layers["oxygen_mol_m2_leaf_s"]))
+        positional = Array(
+            enabled ?
+            sensible_water_flux.(device_heat, device_water, device_enthalpy, names.(device_co2, device_o2)) :
+            sensible_water_flux.(device_heat, device_water, device_enthalpy, names.(device_co2)),
+        )
+        @test eltype(positional) === eltype(case.leaves)
         for i in eachindex(constructed)
             for (received, expected) in zip(
                 exchange_components(constructed[i].rates),
                 exchange_components(case.leaves[i].rates),
             )
-                @test isapprox(
-                    received,
-                    expected;
-                    rtol = case.rtol,
-                    atol = case.atol * abs(expected),
-                )
+                @test isapprox(received, expected; rtol = case.rtol, atol = case.atol * abs(expected))
             end
+            @test positional[i] == constructed[i]
         end
         count = case.config["validation"]["gpu_repetitions"]
         leaves = repeat(case.leaves, count)
         geometry = repeat(case.geometry, count)
         bottom = repeat(case.boundaries[1:(end-1)], count)
         top = repeat(case.boundaries[2:end], count)
-        dummy_oxygen = enabled ? OxygenTransfer(FT(NaN)) : NoOxygen{FT}()
-        dummy = LeafFlux(ExchangeRates(FT(NaN), FT(Inf), FT(NaN), dummy_oxygen))
+        dummy = LeafFlux(ExchangeRates(FT(NaN), FT(Inf), fixture_tracers(FT, enabled, NaN, NaN)))
         for i in eachindex(leaves)
             iszero(geometry[i].leaf_area_density) && (leaves[i] = dummy)
         end
@@ -79,8 +85,7 @@ CUDA.allowscalar(false)
         device_pairs = leaf_air_sources.(device_leaves, device_geometry)
         device_air = (pair -> pair.air).(device_pairs)
         device_leaf = (pair -> pair.leaf).(device_pairs)
-        device_tendency =
-            layer_tendency.(device_bottom, device_top, device_air, device_geometry)
+        device_tendency = layer_tendency.(device_bottom, device_top, device_air, device_geometry)
         @test all(Array(valid_exchange.(device_tendency)))
         @test all(Array(valid_exchange.(device_leaf)))
         actual = Array(device_tendency)
@@ -91,15 +96,10 @@ CUDA.allowscalar(false)
                 exchange_components(actual[i].rates),
                 exchange_components(reference[i].rates),
             )
-                @test isapprox(
-                    received,
-                    expected;
-                    rtol = case.rtol,
-                    atol = case.atol * abs(expected),
-                )
+                @test isapprox(received, expected; rtol = case.rtol, atol = case.atol * abs(expected))
             end
         end
-        @test (oxygen_value(actual[1].rates.oxygen) === nothing) == !enabled
+        @test haskey(actual[1].rates.tracers, :o2) == enabled
 
         # Plant (LAD + SAD), datum shift, steady flux, and moist-air CUDA broadcast
         device_pg = CuArray(
@@ -109,8 +109,8 @@ CUDA.allowscalar(false)
                 FT(0.2),
             ),
         )
-        stem_o2 = enabled ? OxygenTransfer(zero(FT)) : NoOxygen{FT}()
-        device_stems = CuArray(fill(sensible_stem_flux(FT(15), stem_o2), length(leaves)))
+        stem = sensible_stem_flux(FT(15), fixture_tracers(FT, enabled, zero(FT), zero(FT)))
+        device_stems = CuArray(fill(stem, length(leaves)))
         device_plant = plant_air_sources.(device_leaves, device_stems, device_pg)
         device_plant_air = (p -> p.air).(device_plant)
         device_shifted = shift_water_energy_datum.(device_bottom, FT(500))
@@ -119,8 +119,10 @@ CUDA.allowscalar(false)
             layer_tendency.(device_shifted, device_steady_top, device_plant_air, device_pg)
         device_moist = moist_air_tendencies.(device_plant_tend, FT(0.92))
         host_moist = Array(device_moist)
-        @test eltype(host_moist) === MoistAirTendencies{FT,typeof(stem_o2)}
+        @test eltype(host_moist) === MoistAirTendencies{FT,typeof(stem.rates.tracers)}
         @test all(valid_exchange, host_moist)
         @test maximum(m -> abs(m.rho_energy), host_moist) <= FT(100) * eps(FT) * FT(1e4)
+        # Reductions over device records
+        @test sum(device_air) isa VolumeSource
     end
 end

@@ -63,3 +63,28 @@ Local logs for this checkpoint are under `/tmp/canopy-exchange-20261108/logs`;
 The CPU environments were cloned from previously accepted environments and
 resolved using `Pkg.develop`, without modifying the original manifests. Julia 1.10
 compatibility is retained from the source package; this checkpoint executed 1.12.6.
+
+# Open tracer core (Unreleased 0.2.0), 2026-11-17
+
+Before `src/` was changed, `test/write_reference_record.jl` wrote
+`test/reference/exchange_v0_1_1.toml` from v0.1.1 (commit `c35ad8d`): IEEE bit strings
+of leaf fluxes, leaf air and donor sources, layer tendencies, the stem path (dry and
+transpiring stems), datum shifts of leaf, stem, face and volume streams,
+`steady_top_flux`, `accumulate_steady_fluxes`, `surface_static_energy_flux` and
+`moist_air_tendencies` at gas fraction 1 and 0.96, in `Float32` and `Float64`, with
+and without O₂. That file is never regenerated from later code.
+
+Executed on the refactored code (two NVIDIA L40S):
+
+- `Pkg.test()` on Julia 1.12.6 (ForwardDiff 1.5.0) and on Julia 1.10.12 (ForwardDiff
+  1.5.0) passed; the same suite with ForwardDiff 0.10.22 forced in a separate
+  environment passed. The frozen record (105 checks) and the leaf SHA-256 record
+  `19bcfb73...` are reproduced bit for bit.
+- `test/run_cuda.jl` (CUDA 6.5.1) passed 14,456 checks; `test/run_fields.jl`
+  (CUDA 6.4.1, ClimaCore 1.0.8) passed on `CuArray` and on ClimaCore fields on CPU and
+  CUDA, `Float32` and `Float64`.
+- The Documenter build (`checkdocs = :all`, doctests) completed without errors.
+
+Reproduction: the commands in the README; for ForwardDiff 0.10, develop this package
+into an environment with the test dependencies and `ForwardDiff = "0.10"` pinned and
+run `test/runtests.jl` with that project.
