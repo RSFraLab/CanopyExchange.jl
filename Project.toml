@@ -3,5 +3,12 @@ uuid = "bcadd6a6-82db-4312-8c3d-ee75d4df0995"
 authors = ["Christian Frankenberg <cfranken@caltech.edu> and contributors"]
 version = "0.1.1"
 
+[weakdeps]
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+
+[extensions]
+CanopyExchangeForwardDiffExt = "ForwardDiff"
+
 [compat]
+ForwardDiff = "0.10, 1"
 julia = "1.10"

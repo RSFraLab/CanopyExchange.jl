@@ -14,7 +14,12 @@ using Test
         @test check_no_implicit_imports(CanopyExchange) === nothing
         @test check_no_stale_explicit_imports(CanopyExchange) === nothing
         @test check_all_explicit_imports_via_owners(CanopyExchange) === nothing
-        @test check_all_explicit_imports_are_public(CanopyExchange) === nothing
+        # The ForwardDiff extension imports `Dual`, `value` and `partials`, which
+        # ForwardDiff documents but does not declare `public`.
+        @test check_all_explicit_imports_are_public(
+            CanopyExchange;
+            ignore = (:Dual, :value, :partials),
+        ) === nothing
         @test check_all_qualified_accesses_via_owners(CanopyExchange) === nothing
         @test check_all_qualified_accesses_are_public(CanopyExchange) === nothing
         @test check_no_self_qualified_accesses(CanopyExchange) === nothing

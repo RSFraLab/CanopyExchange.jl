@@ -120,6 +120,7 @@ end
 end
 
 @testset "Automatic differentiation contracts" begin
+    @test Base.get_extension(CanopyExchange, :CanopyExchangeForwardDiffExt) isa Module
     D = ForwardDiff.Dual
     d(v, p) = D{Nothing}(v, p)
     # mixed plain and dual inputs promote; Float32 with a Float64 dual does not
