@@ -101,7 +101,8 @@ const _NOT_SCALAR = "tracer values must be real scalars"
 const _TRACER_SETS = "tracer sets of canopy exchange records differ"
 
 @inline _float_type(x) = primal_type(eltype(typeof(x)))
-@inline _is_float(::Type{P}) where {P} = P <: AbstractFloat
+# Concrete only: an abstract element type (e.g. `AbstractFloat`) could hide mixed precisions.
+@inline _is_float(::Type{P}) where {P} = isconcretetype(P) && P <: AbstractFloat
 
 @inline function same_precision(a, rest...)
     P = _float_type(a)
@@ -132,7 +133,7 @@ end
 
 # Whether two scalar types differ at most by derivative information (container promotion).
 @inline _promotable(::Type{A}, ::Type{B}) where {A,B} =
-    primal_type(A) === primal_type(B) && primal_type(A) <: AbstractFloat
+    primal_type(A) === primal_type(B) && _is_float(primal_type(A))
 
 # Validity checks on primal values; derivative components only need to be finite.
 @inline function _checked(x, bound_ok, message)

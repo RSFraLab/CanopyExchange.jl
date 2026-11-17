@@ -1,6 +1,6 @@
 # `@inferred`, result element type, isbits results and zero allocations for every
 # exported kernel and constructor, in Float32 and Float64.
-using Test, CanopyExchange
+using Test, ForwardDiff, CanopyExchange
 
 # Helper functions keep @allocated out of @testset scope (Julia 1.10).
 allocations(f::F, args::Vararg{Any,N}) where {F,N} = (f(args...); @allocated f(args...))
@@ -106,4 +106,31 @@ element_type(x) = eltype(x)
     @test eltype(eltype(faces)) === FT
     @test allocations(accumulate_steady_fluxes!, faces, face, sources, geometries) == 0
     @test CanopyExchange.primal_type(FT) === FT
+end
+
+# The five scalar hooks on a dual and a nested dual (ForwardDiff extension).
+dual_primal_type(x) = CanopyExchange.primal_type(typeof(x))
+equal_values(x, y) = CanopyExchange.scalar_equal(==, x, y)
+isequal_values(x, y) = CanopyExchange.scalar_equal(isequal, x, y)
+
+@testset "Scalar hooks on duals: inference and allocations" begin
+    d = ForwardDiff.Dual{Nothing}(1.5, 2.0, -0.0)
+    nested = ForwardDiff.Dual{:outer}(d, d, zero(d))
+    for x in (d, nested), (f, args) in (
+        (dual_primal_type, (x,)),
+        (CanopyExchange.primal, (x,)),
+        (CanopyExchange.all_finite, (x,)),
+        (CanopyExchange.exact_zero, (x,)),
+        (equal_values, (x, x)),
+        (isequal_values, (x, x)),
+        (equal_values, (x, 1.5)),
+        (equal_values, (1.5, x)),
+    )
+        @inferred f(args...)
+        @test allocations(f, args...) == 0
+    end
+    @test dual_primal_type(nested) === Float64 && CanopyExchange.primal(nested) === 1.5
+    @test equal_values(d, d) && !equal_values(d, 1.5) && !isequal_values(d, -d)
+    @test CanopyExchange.all_finite(nested) && !CanopyExchange.exact_zero(nested)
+    @test !CanopyExchange.all_finite(ForwardDiff.Dual{Nothing}(1.0, NaN))
 end

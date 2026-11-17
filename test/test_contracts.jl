@@ -2,6 +2,8 @@
 # the first review round broke the v1 prototype (canopy-refactor/prototype/check.jl).
 using Test, ForwardDiff, CanopyExchange
 
+const _MIXED_MESSAGE = "mixed floating-point precision in canopy exchange"
+
 # An external layer geometry with a thickness only and no Base.eltype.
 struct BareGeometry
     thickness::Float64
@@ -58,6 +60,23 @@ end
         @test_throws ArgumentError("tracer values must be real scalars") ExchangeRates(1.0, 2.0, (; a = bad))
     end
     @test_throws ArgumentError Tracers(:co2, :co2)
+    # Abstract containers: dispatch is on the runtime values, so mixed Float32/Float64
+    # contents are rejected and homogeneous contents work; an abstract element type
+    # itself never passes the policy.
+    for v in (AbstractFloat[1.0f0, 2.0, 0.5], Real[1.0f0, 2.0, 0.5])
+        @test_throws ArgumentError(_MIXED_MESSAGE) ExchangeRates(v[1], v[2])
+        @test_throws ArgumentError(_MIXED_MESSAGE) ExchangeRates(v[2], v[2], (; co2 = v[1]))
+        @test_throws ArgumentError(_MIXED_MESSAGE) LayerGeometry(v[1], v[3])
+        @test_throws ArgumentError(_MIXED_MESSAGE) PlantLayerGeometry(v[2], v[3], v[1])
+        @test_throws ArgumentError ExchangeRates.(v, v[2])
+    end
+    for v in (AbstractFloat[1.0, 2.0, 0.5], Real[1.0f0, 2.0f0, 0.5f0])
+        @test ExchangeRates(v[1], v[2], (; co2 = v[3])) isa ExchangeRates{typeof(v[1])}
+        @test LayerGeometry(v[1], v[3]) isa LayerGeometry{typeof(v[1])}
+    end
+    @test Real[1, 2] |> (v -> try ExchangeRates(v[1], v[2]) catch e; e end) isa ArgumentError
+    @test_throws ArgumentError("canopy exchange scalars must be floating point") CanopyExchange.same_precision(AbstractFloat[1.0])
+    @test_throws ArgumentError("canopy exchange scalars must be floating point") CanopyExchange.same_precision(1.0, Real[1.0])
     @test_throws ArgumentError ExchangeRates(true, false)
     @test_throws ArgumentError LayerGeometry(1, 0)
     @test_throws ArgumentError moist_air_tendencies(VolumeSource(r64), 1)
