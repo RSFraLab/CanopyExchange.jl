@@ -68,7 +68,7 @@ The CPU environments were cloned from previously accepted environments and
 resolved using `Pkg.develop`, without modifying the original manifests. Julia 1.10
 compatibility is retained from the source package; this checkpoint executed 1.12.6.
 
-# Open tracer core (Unreleased 0.2.0), 2026-11-17
+# Open tracer core (Unreleased 0.2.0), 2026-11-17 (after the review fix round)
 
 Before `src/` was changed, `test/write_reference_record.jl` wrote
 `test/reference/exchange_v0_1_1.toml` from v0.1.1 (commit `c35ad8d`): IEEE bit strings
@@ -80,9 +80,10 @@ and without O₂. That file is never regenerated from later code.
 
 Executed on the refactored code (two NVIDIA L40S):
 
-- `Pkg.test()` on Julia 1.12.6 (ForwardDiff 1.5.0) and on Julia 1.10.12 (ForwardDiff
-  1.5.0) passed; the same suite with ForwardDiff 0.10.22 forced in a separate
-  environment passed. The frozen record (105 checks) and the leaf SHA-256 record
+- `Pkg.test()` on Julia 1.12.6 (ForwardDiff 1.5.0, 1,868 checks) and on Julia
+  1.10.12 (ForwardDiff 1.5.0, 1,860 checks; ExplicitImports runs only on 1.11+)
+  passed; the same suite with ForwardDiff 0.10.39 pinned in a separate environment
+  passed (1,868 checks). These figures are from the review fix round. The frozen record (105 checks) and the leaf SHA-256 record
   `19bcfb73...` are reproduced bit for bit.
 - `test/run_cuda.jl` (CUDA 6.5.1) passed 14,456 checks; `test/run_fields.jl`
   (CUDA 6.4.1, ClimaCore 1.0.8) passed on `CuArray` and on ClimaCore fields on CPU and
