@@ -1,6 +1,6 @@
 using Test
 using CanopyExchange
-include("exchange_fixture.jl")
+@isdefined(exchange_fixture) || include("exchange_fixture.jl")
 
 function exchange_allocation_check(leaf, geometry, bottom, top)
     paired = leaf_air_sources(leaf, geometry)
@@ -45,7 +45,7 @@ end
         ) isa FT
         @test source[2] > zero(FT) && source[3] < zero(FT)
         other = FT === Float32 ? Float64 : Float32
-        @test_throws MethodError conserved_tendency(
+        @test_throws ArgumentError conserved_tendency(
             other(faces[1]),
             faces[2],
             source[1],
@@ -139,9 +139,8 @@ end
             shifted = sensible_water_flux(
                 FT(layers["sensible_heat_W_m2_leaf"][i]),
                 original.water,
-                original.carbon,
-                original.oxygen,
                 FT(layers["vapor_enthalpy_J_kg"][i]) + shift,
+                original.tracers,
             )
             difference =
                 leaf_air_sources(shifted, geometry[i]).air.rates.energy -
@@ -154,14 +153,13 @@ end
             )
         end
 
-        dummy_oxygen = enabled ? OxygenTransfer(FT(NaN)) : NoOxygen{FT}()
-        dummy = LeafFlux(ExchangeRates(FT(NaN), FT(Inf), FT(NaN), dummy_oxygen))
+        dummy = LeafFlux(ExchangeRates(FT(NaN), FT(Inf), fixture_tracers(FT, enabled, NaN, NaN)))
         empty = leaf_air_sources(dummy, geometry[1])
         @test all(iszero, exchange_components(empty.air.rates))
         @test all(iszero, exchange_components(empty.leaf.rates))
         @test valid_exchange(empty.air)
         @test !valid_exchange(leaf_air_sources(dummy, geometry[2]).air)
-        @test (oxygen_value(empty.air.rates.oxygen) === nothing) == !enabled
+        @test haskey(empty.air.rates.tracers, :o2) == enabled
         @test exchange_allocation_check(
             leaves[2],
             geometry[2],
@@ -176,19 +174,21 @@ end
             geometry[1],
         )
         other = FT === Float32 ? Float64 : Float32
-        @test_throws MethodError leaf_air_sources(
+        # Mixed precision and mismatched tracer sets are ArgumentErrors (v0.1.x: MethodError).
+        @test_throws ArgumentError leaf_air_sources(
             leaves[1],
             LayerGeometry(one(other), zero(other)),
         )
-        wrong_oxygen = enabled ? NoOxygen{FT}() : OxygenTransfer(zero(FT))
-        incompatible = FaceFlux(ExchangeRates(zero(FT), zero(FT), zero(FT), wrong_oxygen))
-        @test_throws MethodError layer_tendency(
+        incompatible = FaceFlux(
+            ExchangeRates(zero(FT), zero(FT), fixture_tracers(FT, !enabled, zero(FT), zero(FT))),
+        )
+        @test_throws ArgumentError layer_tendency(
             incompatible,
             boundaries[2],
             air[1],
             geometry[1],
         )
-        @test_throws MethodError ExchangeRates(one(FT), one(other), one(FT), NoOxygen{FT}())
+        @test_throws ArgumentError ExchangeRates(one(FT), one(other), (; co2 = one(FT)))
         for thickness in (zero(FT), -one(FT), FT(NaN), FT(Inf))
             @test_throws ArgumentError LayerGeometry(thickness, zero(FT))
         end

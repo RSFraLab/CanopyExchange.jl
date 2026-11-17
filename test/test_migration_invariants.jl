@@ -65,20 +65,22 @@ using Test, TOML, CanopyExchange
         @test abs(sum(volume .* (shifted_tendency .- energy_tendency)) - expected_inventory_shift) <= bound
 
         carbon = FT(transfer["leaf_carbon_mol_m2_leaf_s"])
-        absent = ExchangeRates(leaf_rate, water, carbon, NoOxygen{FT}())
-        computed = ExchangeRates(leaf_rate, water, carbon, OxygenTransfer(z))
+        absent = ExchangeRates(leaf_rate, water, (; co2 = carbon))
+        computed = ExchangeRates(leaf_rate, water, (; co2 = carbon, o2 = z))
         absent_pair = leaf_air_sources(LeafFlux(absent), whole)
         computed_pair = leaf_air_sources(LeafFlux(computed), whole)
         @test typeof(absent_pair) !== typeof(computed_pair)
-        @test oxygen_value(absent_pair.air.rates.oxygen) === nothing
-        @test oxygen_value(computed_pair.air.rates.oxygen) === z
-        for name in (:energy, :water, :carbon)
+        @test !haskey(absent_pair.air.rates.tracers, :o2)
+        @test computed_pair.air.rates.tracers.o2 === z
+        for name in (:energy, :water)
             @test getproperty(absent_pair.air.rates, name) === getproperty(computed_pair.air.rates, name)
         end
-        @test_throws MethodError layer_tendency(FaceFlux(absent), FaceFlux(computed), absent_pair.air, whole)
+        @test absent_pair.air.rates.tracers.co2 === computed_pair.air.rates.tracers.co2
+        # Combining an absent with a computed tracer is an ArgumentError (v0.1.x: MethodError).
+        @test_throws ArgumentError layer_tendency(FaceFlux(absent), FaceFlux(computed), absent_pair.air, whole)
         empty = LayerGeometry(sum(dz), z)
         for invalid in (FT(NaN), FT(Inf))
-            bad = ExchangeRates(invalid, water, carbon, NoOxygen{FT}())
+            bad = ExchangeRates(invalid, water, (; co2 = carbon))
             @test !valid_exchange(leaf_air_sources(LeafFlux(bad), whole).air)
             empty_source = leaf_air_sources(LeafFlux(bad), empty).air
             @test valid_exchange(empty_source)
