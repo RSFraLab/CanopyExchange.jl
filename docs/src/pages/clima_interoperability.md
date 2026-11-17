@@ -2,7 +2,8 @@
 
 `CanopyExchange` is designed to compose directly with CliMA packages
 (`Thermodynamics.jl`, `SurfaceFluxes.jl`, `ClimaLand.jl`, `ClimaAtmos.jl`, and
-`ClimaCore.jl`) while remaining 100% dependency-free in its own `Project.toml`.
+`ClimaCore.jl`) with no runtime dependencies in its own `Project.toml` (ForwardDiff is an optional
+weak dependency that only loads the scalar-hook extension).
 
 ## 1. `SurfaceFluxes.jl` & `Thermodynamics.jl` Static-Energy Datum
 
@@ -34,7 +35,7 @@ and `sfc.evaporation` directly to [`surface_static_energy_flux`](@ref):
 
 ```julia
 # With sfc = SurfaceFluxes.surface_conditions(sf_params, sf_inputs):
-soil_flux = surface_static_energy_flux(sfc.shf, sfc.lhf, sfc.evaporation, soil_co2_flux)
+soil_flux = surface_static_energy_flux(sfc.shf, sfc.lhf, sfc.evaporation, (; co2 = soil_co2_flux))
 ```
 
 For leaf and stem layers at height $z_k$ ($\Phi_k = g z_k$), pass
@@ -45,7 +46,7 @@ gravitational potential energy:
 
 ```julia
 hv_k = Thermodynamics.enthalpy_vapor(thermo_params, T_leaf) + grav * z_k
-lf_k = sensible_water_flux(H_leaf, E_leaf, C_leaf, hv_k)
+lf_k = sensible_water_flux(H_leaf, E_leaf, hv_k, (; co2 = C_leaf))
 ```
 
 ## 2. Reference-Enthalpy & Geopotential Shifts (`shift_water_energy_datum`)
@@ -62,7 +63,7 @@ Use [`shift_water_energy_datum`](@ref) with $\Delta e_w = e_{w,\mathrm{target}} 
 ```jldoctest
 julia> using CanopyExchange
 
-julia> faces = [FaceFlux(ExchangeRates(120.0, 4.0e-5, 0.0)), FaceFlux(ExchangeRates(150.0, 5.0e-5, 0.0))];
+julia> faces = [face_flux(120.0, 4.0e-5, (; co2 = 0.0)), face_flux(150.0, 5.0e-5, (; co2 = 0.0))];
 
 julia> z_faces = [0.0, 2.0]; grav = 9.80665;
 
@@ -90,13 +91,13 @@ julia> using CanopyExchange
 
 julia> geoms = [PlantLayerGeometry(1.5, 0.0, 0.2), PlantLayerGeometry(2.5, 1.4, 0.15)];
 
-julia> lfs = [sensible_water_flux(NaN, NaN, NaN, 2.5e6), sensible_water_flux(90.0, 3.5e-5, -1.2e-5, 2.5e6)];
+julia> lfs = [sensible_water_flux(NaN, NaN, 2.5e6, (; co2 = NaN)), sensible_water_flux(90.0, 3.5e-5, 2.5e6, (; co2 = -1.2e-5))];
 
-julia> sfs = [sensible_stem_flux(25.0), sensible_stem_flux(15.0)];
+julia> sfs = [sensible_stem_flux(25.0, (; co2 = 0.0)), sensible_stem_flux(15.0, (; co2 = 0.0))];
 
 julia> air_srcs = getproperty.(plant_air_sources.(lfs, sfs, geoms), :air);
 
-julia> soil = surface_static_energy_flux(40.0, 80.0, 3.2e-5, 2.0e-6);
+julia> soil = surface_static_energy_flux(40.0, 80.0, 3.2e-5, (; co2 = 2.0e-6));
 
 julia> faces = accumulate_steady_fluxes(soil, air_srcs, geoms);
 
@@ -111,20 +112,25 @@ $\varepsilon_{\mathrm{gas}} \in (0, 1]$ ($\partial_t \varepsilon_{\mathrm{gas}} 
 and conserved dry-air mass ($S_{\rho_d} = 0$) evolve conserved densities per unit
 **gas volume**. [`moist_air_tendencies`](@ref) divides bulk-volume tendencies
 fieldwise by `gas_fraction`, returning [`MoistAirTendencies`](@ref) with
-`rho_total == rho_water == water / ε_gas`, `rho_energy == energy / ε_gas`,
-`carbon == carbon / ε_gas`, and `oxygen / ε_gas`.
+`rho_total == rho_water == water / ε_gas`, `rho_energy == energy / ε_gas`, and every
+tracer divided by `ε_gas`. Tracers stay nested in `tracers`, so a tracer name cannot
+overwrite a host field.
 
-Because every `CanopyExchange` record defines `Base.broadcastable(x) = Ref(x)` and all
-transformation functions take purely positional arguments without heap allocations,
-complete column pipelines fuse into a single `@.` broadcast kernel over
-`ClimaCore.Fields.Field` and `CuArray`:
+Every `CanopyExchange` record is a scalar in broadcasts and every kernel takes
+positional arguments only, without heap allocations, so column pipelines broadcast
+over `ClimaCore.Fields.Field` and `CuArray`. GPU field broadcasts reject a type or a
+keyword argument in the function position, so construct records with the function
+forms (`layer_geometry`, `leaf_flux`, `stem_flux`, `face_flux`) and the `Tracers`
+callable (`test/run_fields.jl` runs this on CPU and CUDA fields):
 
 ```julia
-# On a ClimaCore CenterFiniteDifferenceSpace with coordinate field z_f:
-geom_f  = @. PlantLayerGeometry(dz_f, lad_f, sad_f)
-lf_f    = @. sensible_water_flux(sh_leaf_f, evap_leaf_f, co2_leaf_f, hv_f)
-sf_f    = @. sensible_stem_flux(sh_stem_f)
-air_f   = map(p -> p.air, @. plant_air_sources(lf_f, sf_f, geom_f))
-tend_f  = @. layer_tendency(bot_face_f, top_face_f, air_f, geom_f)
-moist_f = @. moist_air_tendencies(tend_f, eps_gas_f)
+# On a ClimaCore CenterFiniteDifferenceSpace:
+T       = Tracers(:co2)
+air(p)  = p.air
+geom_f  = layer_geometry.(dz_f, lad_f, sad_f)
+lf_f    = sensible_water_flux.(sh_leaf_f, evap_leaf_f, hv_f, T.(co2_leaf_f))
+sf_f    = sensible_stem_flux.(sh_stem_f, T.(co2_stem_f))
+air_f   = air.(plant_air_sources.(lf_f, sf_f, geom_f))
+tend_f  = layer_tendency.(bot_face_f, top_face_f, air_f, geom_f)
+moist_f = moist_air_tendencies.(tend_f, eps_gas_f)
 ```

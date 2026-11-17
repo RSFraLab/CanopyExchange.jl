@@ -1,52 +1,53 @@
-# Quantities & Layer Geometries
+# Records, Measures & Layer Geometries
 
-Scalar exchange records in `CanopyExchange` separate conserved chemical/energetic
-payloads ([`ExchangeRates`](@ref)) from their spatial integration denominators
-([`LeafFlux`](@ref), [`StemFlux`](@ref), [`FaceFlux`](@ref), [`VolumeSource`](@ref),
-and [`MoistAirTendencies`](@ref)) and finite-volume layer descriptors
-([`LayerGeometry`](@ref) and [`PlantLayerGeometry`](@ref)).
+Exchange rates ([`ExchangeRates`](@ref): energy, water and an open set of passive
+molar tracers) are separated from the spatial measure they are expressed per
+([`Exchange`](@ref) with a [`Measure`](@ref)) and from the finite-volume layer
+descriptors. Gas-volume host tendencies are [`MoistAirTendencies`](@ref).
 
-All wrapper types support `eltype`, `convert` and `promote_rule` across compatible
-continuous scalars (`Float64` with `ForwardDiff.Dual{Tag,Float64,N}`), `==`,
-`isequal`, `hash`, `broadcastable`, and measure-safe linear algebra (`+`, `-`,
-unary `-`, scalar `*`, scalar `/`). Flux and tendency records also define `zero`.
+All records are immutable and `isbits` for plain floats, act as scalars in broadcasts,
+compare by value (`-0.0 == 0.0`, `NaN != NaN`; `isequal` and `hash` consistent), and
+support componentwise `+`, `-`, unary `-`, scalar `*` and `/` and `zero`. A vector of a
+plain and a dual-valued record promotes to a concrete dual-valued element type.
 
 ```@contents
 Pages = ["quantities_and_geometries.md"]
 Depth = 2
 ```
 
-## Optional Molecular Oxygen
-
-```@docs
-OxygenContent
-NoOxygen
-OxygenTransfer
-oxygen_value
-```
-
-## Conserved Exchange Rates & Validity
+## Rates and tracers
 
 ```@docs
 ExchangeRates
+Tracers
 valid_exchange
 ```
 
-## Measure-Tagged Flux & Source Wrappers
+## Measures and measure-tagged records
 
 ```@docs
-AbstractExchangeFlux
+Measure
+LeafArea
+StemArea
+GroundArea
+BulkVolume
+Exchange
 LeafFlux
 StemFlux
 FaceFlux
 VolumeSource
-MoistAirTendencies
+leaf_flux
+stem_flux
+face_flux
 ```
 
-## Finite-Volume Layer Geometries
+## Layer geometries
 
 ```@docs
-AbstractLayerGeometry
 LayerGeometry
 PlantLayerGeometry
+layer_geometry
+thickness
+area_density
+plant_area_density
 ```

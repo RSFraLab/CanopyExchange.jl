@@ -1,35 +1,35 @@
 # API Reference
 
-This section documents all exported and `public` types and functions in
-`CanopyExchange`, grouped by physical domain rather than alphabetical order.
+This section documents all exported and `public` names of `CanopyExchange`, grouped by
+physical process.
 
 ```@docs
 CanopyExchange
 ```
 
-## Subsystem Map
+## Subsystem map
 
-| Physical Domain | API Reference Page | Conceptual Guides |
+| Process | API page | Concept guide |
 | --- | --- | --- |
-| Optional oxygen modes, conserved `ExchangeRates`, measure-tagged wrappers (`LeafFlux`, `StemFlux`, `FaceFlux`, `VolumeSource`), `MoistAirTendencies`, layer geometries (`LayerGeometry`, `PlantLayerGeometry`), and finite-value predicates | [Quantities & Layer Geometries](quantities_and_geometries.md) | [Measures & Conservation](../pages/measures_and_conservation.md) |
-| Area-to-volume source conversions (`area_source`, `leaf_area_source`, `stem_area_source`, `plant_area_density`), enthalpy-coupled flux constructors (`sensible_water_flux`, `sensible_stem_flux`), paired donor ledgers (`leaf_air_sources`, `plant_air_sources`), and finite-volume divergences (`conserved_tendency`, `layer_tendency`) | [Area Sources & Divergence](sources_and_tendencies.md) | [Measures & Conservation](../pages/measures_and_conservation.md) |
-| `SurfaceFluxes` boundary assembly (`surface_static_energy_flux`), water-energy datum shifts (`shift_water_energy_datum`), diagnostic steady-air flux profiles (`layer_flux_increment`, `steady_top_flux`, `accumulate_steady_fluxes!`, `accumulate_steady_fluxes`), porous moist-air density tendencies (`moist_air_tendencies`), and `public` continuous-scalar traits | [CliMA Contracts & Scalar Traits](clima_and_scalars.md) | [CliMA Interoperability](../pages/clima_interoperability.md), [Validation & Bit Parity](../pages/validation.md) |
+| Rates and passive tracers (`ExchangeRates`, `Tracers`), measures and measure-tagged records (`Exchange`, `LeafFlux`, `StemFlux`, `FaceFlux`, `VolumeSource`), layer geometry interface (`LayerGeometry`, `PlantLayerGeometry`, `thickness`, `area_density`) | [Records, Measures & Layer Geometries](quantities_and_geometries.md) | [Measures & Conservation](../pages/measures_and_conservation.md) |
+| Area-to-volume conversion (`area_source`, `volume_source`), paired ledgers (`leaf_air_sources`, `plant_air_sources`), finite-volume divergence (`conserved_tendency`, `layer_tendency`) | [Area Sources & Divergence](sources_and_tendencies.md) | [Measures & Conservation](../pages/measures_and_conservation.md) |
+| Element and boundary fluxes (`sensible_water_flux`, `sensible_stem_flux`, `surface_static_energy_flux`), energy datum (`shift_water_energy_datum`), steady columns, `MoistAirTendencies`, scalar hooks | [Boundary Fluxes, Steady Columns, Moist Air & Scalar Hooks](clima_and_scalars.md) | [CliMA Interoperability](../pages/clima_interoperability.md), [Validation](../pages/validation.md) |
 
 ## Conventions
 
-- **Exported vs. `public` bindings**: Symbols shown unqualified (`LeafFlux`,
-  `plant_air_sources`, `moist_air_tendencies`) are exported by `using CanopyExchange`.
-  Continuous-scalar trait and leaf-float predicate functions declared `public` on
-  Julia 1.11+ (`CanopyExchange.primal_float_type`, `CanopyExchange.finite_scalar`,
-  `CanopyExchange.exact_zero_scalar`, etc.) are part of the supported API when
-  qualified with `CanopyExchange.` or explicitly imported.
-- **Precision, device & AD contract**: All structs and functions preserve caller
-  floating-point precision (`Float32`, `Float64`, `BigFloat`), allocate zero heap
-  memory on scalar paths, broadcast via `@.` over `CuArray` and `ClimaCore.Fields.Field`,
-  and propagate `ForwardDiff.Dual` tangents while rejecting mixed `Float32`/`Float64`
-  precisions and discrete integer/rational types.
+- **Exported and `public` names**: names shown unqualified are exported by
+  `using CanopyExchange`. The scalar hooks (`CanopyExchange.primal_type`,
+  `CanopyExchange.primal`, `CanopyExchange.all_finite`, `CanopyExchange.exact_zero`)
+  are `public` on Julia 1.11+ and not exported.
+- **Precision**: every scalar that meets in a record or kernel carries one
+  floating-point type. `Float32` with `Float64`, integers, rationals and irrationals
+  throw an `ArgumentError`; `Float64` with a `Float64`-valued dual promotes.
+- **Kernels**: positional arguments only, no keyword arguments, static error messages,
+  zero heap allocations; they broadcast over `CuArray` and `ClimaCore.Fields.Field`.
+  Construction inside such broadcasts uses the function forms (`leaf_flux`,
+  `face_flux`, `layer_geometry`, `Tracers(:co2)`), not type constructors.
 
-## Section Contents
+## Section contents
 
 ```@contents
 Pages = [
@@ -40,7 +40,7 @@ Pages = [
 Depth = 2
 ```
 
-## Alphabetical Symbol Index
+## Alphabetical index
 
 ```@index
 Pages = [

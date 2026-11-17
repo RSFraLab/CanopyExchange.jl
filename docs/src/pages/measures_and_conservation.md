@@ -1,75 +1,95 @@
 # Measures & Conservation
 
-`CanopyExchange` enforces dimensional measure safety and discrete finite-volume
-conservation through immutable, `isbitstype` wrappers parameterized on a continuous
-scalar type `FT <: Real`.
+`CanopyExchange` enforces measure safety and discrete finite-volume conservation with
+immutable, `isbits` records whose scalars share one floating-point type.
 
-## 1. Conserved Budget Quantities (`ExchangeRates`)
+## 1. Conserved quantities and passive tracers (`ExchangeRates`)
 
-[`ExchangeRates`](@ref) bundles four extensively conserved transfer rates per second
-and per wrapper spatial denominator:
+[`ExchangeRates`](@ref) holds, per second and per measure of the enclosing record:
 
-1. `energy` [$\mathrm{J\,s^{-1}}$ per measure]: total energy transfer under a
-   caller-declared thermodynamic datum (not sensible or latent heat in isolation).
-2. `water` [$\mathrm{kg\,H_2O\,s^{-1}}$ per measure]: signed water mass transfer.
-3. `carbon` [$\mathrm{mol\,C\,s^{-1}}$ per measure]: signed molar $\mathrm{CO_2}$
-   transfer ($1\,\mathrm{mol\,C}$ per $\mathrm{mol\,CO_2}$; photosynthetic uptake
-   from air into leaf is negative in `LeafFlux`).
-4. `oxygen` ([`OxygenContent`](@ref)): either [`NoOxygen`](@ref) (`oxygen_value === nothing`,
-   zero storage overhead) or [`OxygenTransfer`](@ref) [$\mathrm{mol\,O_2\,s^{-1}}$
-   per measure].
+1. `energy` [$\mathrm{J\,s^{-1}}$]: total energy transfer under one caller-declared
+   thermodynamic datum, including the enthalpy carried by transported water vapour.
+   No second latent-heat term may be added when coupling to a conserved energy budget.
+2. `water` [$\mathrm{kg\,H_2O\,s^{-1}}$]: total water mass transfer.
+3. `tracers` [$\mathrm{mol\,s^{-1}}$]: passive molar tracers in a `NamedTuple`, for
+   example `(; co2, o2)` or `(; co2, cos, ch4)`.
 
-Adding or combining `NoOxygen` with `OxygenTransfer` throws `MethodError`, so an
-uncomputed oxygen budget can never silently masquerade as zero physical $\mathrm{O_2}$
-exchange.
+Energy and water are named fields because two operations treat them specially: the
+water-energy datum shift and the total-mass source of the host (equal to the water
+source with zero dry-air mass source). Everything else applies componentwise to the
+tracers present. The tracer rules:
 
-## 2. Paired Area-to-Volume Ledgers (`LAD` and `SAD`)
+- Tracers are molar and passive; they carry no energy and no mass in these records.
+- Water isotopologues are subsets of `water`; as tracers they never enter total mass.
+- An `o2` key carries the O₂ transfer; it does not create an oxygen inventory.
+- A tracer that is not computed is **not a key**. Records with and without it are
+  different types and cannot be combined (`ArgumentError`), so an uncomputed tracer
+  can never masquerade as a measured zero.
+- Tracer order is part of the type.
 
-Canopy layers hold finite positive `thickness` $\Delta z_k > 0$ [$\mathrm{m}$] and
-nonnegative one-sided area densities:
-- [`LayerGeometry`](@ref): leaf-only layers with `leaf_area_density` ($\mathrm{LAD}_k \ge 0$).
-- [`PlantLayerGeometry`](@ref): coupled foliage and woody layers with
-  `leaf_area_density` ($\mathrm{LAD}_k \ge 0$) and `stem_area_density`
-  ($\mathrm{SAD}_k \ge 0$), where [`plant_area_density`](@ref) returns
-  $\mathrm{PAI}_k / \Delta z_k = \mathrm{LAD}_k + \mathrm{SAD}_k$.
+## 2. Measures (`Exchange{M}`)
 
-[`leaf_air_sources`](@ref) multiplies a [`LeafFlux`](@ref) by $\mathrm{LAD}_k$ once
-and returns `(air = +S_leaf, leaf = -S_leaf)` using unary IEEE-754 sign-bit negation.
-[`plant_air_sources`](@ref) scales `leaf_flux` by $\mathrm{LAD}_k$ and `stem_flux`
-by $\mathrm{SAD}_k$ independently, returning `(air, leaf, stem)` such that:
+| Record | Measure | Positive sign |
+| --- | --- | --- |
+| [`LeafFlux`](@ref) = `Exchange{LeafArea}` | m² one-sided leaf area | leaf → air |
+| [`StemFlux`](@ref) = `Exchange{StemArea}` | m² one-sided stem area | stem → air |
+| [`FaceFlux`](@ref) = `Exchange{GroundArea}` | m² horizontal ground area | upward |
+| [`VolumeSource`](@ref) = `Exchange{BulkVolume}` | m³ bulk canopy volume | into the named reservoir |
+
+Arithmetic exists only within one measure; `LeafFlux + StemFlux` and
+`LeafFlux + FaceFlux` are `MethodError`s. A new element class is a new
+[`Measure`](@ref) subtype; see section 5.
+
+## 3. Paired area-to-volume ledgers
+
+A layer geometry is any type with [`thickness`](@ref) [m], [`area_density`](@ref)
+[m² m⁻³] for each element class it holds, and `Base.eltype`. The package provides
+[`LayerGeometry`](@ref) (leaves) and [`PlantLayerGeometry`](@ref) (leaves and stems;
+[`plant_area_density`](@ref) $= \mathrm{LAD}_k + \mathrm{SAD}_k$).
+
+[`volume_source`](@ref) multiplies an element flux by its own area density once.
+[`leaf_air_sources`](@ref) returns `(air = +S_leaf, leaf = -S_leaf)` with IEEE sign-bit
+negation; [`plant_air_sources`](@ref) scales leaf and stem fluxes independently and
+returns `(air, leaf, stem)` with
 
 ```math
-S_{\mathrm{air},k} + \left(S_{\mathrm{leaf},k} + S_{\mathrm{stem},k}\right) = 0.
+S_{\mathrm{air},k} + \left(S_{\mathrm{leaf},k} + S_{\mathrm{stem},k}\right) = 0
 ```
 
-The negative donor ledgers (`leaf`, `stem`) record instantaneous transfer out of the
-plant surface rather than asserting internal leaf gas storage.
+to round-off. Each donor ledger is the exact negative of its own contribution; it
+records transfer out of the plant surface, not plant gas storage.
 
-## 3. Empty-Layer Nonfinite Guards vs. Directional AD Tangents
+## 4. Empty layers and derivatives
 
-In batched CPU and GPU arrays, layers with zero foliage ($\mathrm{LAD}_k = 0$) or
-zero woody area ($\mathrm{SAD}_k = 0$) frequently hold `NaN` or `Inf` sentinel rates
-in unused slots. [`area_source`](@ref) inspects [`CanopyExchange.exact_zero_scalar`](@ref):
+Layers with zero foliage or zero woody area often hold `NaN` or `Inf` dummy rates.
+[`area_source`](@ref) asks [`CanopyExchange.exact_zero`](@ref):
 
-- **Exact zero density (primal and all AD partials equal zero):** returns exact
-  `zero(FT)` without multiplying `rate`, preventing `0 * NaN == NaN` contamination on
-  CPU, `CuArray`, and `ClimaCore.Fields.Field` kernels.
-- **Perturbed zero density (`ForwardDiff.Dual(0.0, 1.0)`):** evaluates `rate * area_density`
-  directly (requiring finite `rate`) so the right directional derivative
-  $\partial(\text{rate}\cdot a)/\partial a\big|_{a=0^+} = \text{rate}$ is preserved.
+- **Exact zero density** (value and every derivative component zero): an exact zero,
+  without contamination by `0 * NaN`, on CPU, `CuArray` and ClimaCore fields.
+- **Perturbed zero density** (`ForwardDiff.Dual(0.0, 1.0)`): `rate * area_density`, so
+  the right derivative $\partial(\text{rate}\cdot a)/\partial a|_{a=0^+} = \text{rate}$
+  is kept (requires a finite rate).
 
-## 4. Telescoping Finite-Volume Divergence
+## 5. Extension without changing the package
 
-Across $N$ stacked layers with shared upward-positive horizontal interface fluxes
-$F_{1}, \dots, F_{N+1}$ ([`FaceFlux`](@ref)), [`layer_tendency`](@ref) evaluates:
+A third element class (for example fruit) needs a `Measure` subtype, a geometry type
+with `thickness`, `area_density(g, ::Type{FruitArea})` and `Base.eltype`, and
+`Exchange{FruitArea}(rates)` fluxes; [`volume_source`](@ref), [`layer_tendency`](@ref)
+and the steady-column functions then work unchanged. The test suite
+(`test/test_extension_points.jl`) does this and also carries a second tracer set
+`(co2, cos, ch4)` through the records.
+
+## 6. Telescoping finite-volume divergence
+
+Across $N$ stacked layers with shared upward-positive face fluxes
+$F_1, \dots, F_{N+1}$ ([`FaceFlux`](@ref)), [`layer_tendency`](@ref) evaluates
 
 ```math
 \left(\frac{\partial \psi}{\partial t}\right)_{\mathrm{bulk},k}
-= \frac{F_k - F_{k+1}}{\Delta z_k} + S_{\mathrm{air},k}.
+= \frac{F_k - F_{k+1}}{\Delta z_k} + S_{\mathrm{air},k},
 ```
 
-Integrating over the column $\sum_{k=1}^N \Delta z_k (\partial_t \psi)_{\mathrm{bulk},k}$
-cancels every interior face flux $F_2, \dots, F_N$ identically:
+and the column integral cancels every interior face:
 
 ```math
 \sum_{k=1}^N \Delta z_k \left(\frac{\partial \psi}{\partial t}\right)_{\mathrm{bulk},k}

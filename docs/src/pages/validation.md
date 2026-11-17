@@ -1,48 +1,55 @@
 # Validation & Bit Parity
 
-## 1. Canonical Extraction & IEEE-754 Bit Parity
+## 1. Frozen reference records
 
-`CanopyExchange` was extracted from `CanopyColumn.ConservativeExchange`
-(`05723a9eec3baa96da7185dd164a88d622ee72d1`) and subsequently extended in `v0.1.1`
-with continuous-scalar `{FT<:Real}` automatic differentiation, `StemFlux` /
-`PlantLayerGeometry`, and CliMA boundary/tendency contracts.
+Two committed records fix the arithmetic, so a change that moves every code path
+together is still detected:
 
-Homogeneous primal `Float32` and `Float64` evaluations preserve **exact IEEE-754 bit
-parity** with the original donor implementation:
+- **Leaf record** (`test/write_arithmetic_record.jl canonical <out.toml>`): IEEE-754
+  bit strings of leaf fluxes, paired leaf sources and layer tendencies, `Float32` and
+  `Float64`, with and without O₂. Its SHA-256 is locked at
+  `19bcfb73ba7adb1e88f285bbc2679182a861902729216e4948b9d3d350f0d08d`, unchanged since
+  the extraction from `CanopyColumn.ConservativeExchange` (`05723a9`).
+- **Extended record** (`test/reference/exchange_v0_1_1.toml`, written by
+  `test/write_reference_record.jl` from v0.1.1, commit `c35ad8d`, and never
+  regenerated from later code): additionally the stem path with dry and transpiring
+  stems (`plant_air_sources`), the water-energy datum shift of leaf, stem, face and
+  volume streams, `steady_top_flux`, `accumulate_steady_fluxes`,
+  `surface_static_energy_flux` and `moist_air_tendencies` at gas fraction 1 and below
+  1. `test/test_reference_record.jl` recomputes it and compares bit for bit.
 
-- `test/write_arithmetic_record.jl canonical <out.toml>` verifies that all primal
-  `Float32` and `Float64` bitstrings across computed and absent oxygen match the
-  locked SHA-256 digest `19bcfb73ba7adb1e88f285bbc2679182a861902729216e4948b9d3d350f0d08d`.
-- Unary negation uses `-field` rather than `zero(FT) - field`, preserving IEEE `-0.0`
-  donor sign bits on empty layers.
-- Scalar division uses fieldwise `/ α` rather than `* inv(α)`, preserving exact
-  identity at `gas_fraction == 1` and zero-ULP molar `O₂ / CO₂` stoichiometry.
+The 0.2.0 open-tracer core reproduces both records exactly: CO₂ and O₂ are carried as
+the tracers `co2` and `o2` in the order of the old `carbon` and `oxygen` fields. Unary
+negation uses `-field` (keeping IEEE `-0.0` donor sign bits on empty layers), and
+division by the gas fraction is fieldwise `/ ε` (exact at `ε == 1`).
 
-## 2. Continuous-Scalar AD, QA & Device Verification Gates
+## 2. Test gates
 
-`Pkg.test()` (`test/runtests.jl`) executes deterministic quality-assurance and
-numerical invariants in a clean sandboxed test environment:
+`Pkg.test()` (`test/runtests.jl`) runs:
 
-- **`Aqua.test_all(CanopyExchange)`:** zero method ambiguities, zero unbound type
-  parameters (including `Base.eltype` and `Base.promote_rule` on `Union{}`), zero
-  undefined exports, zero piracies, and clean `Project.toml` `[compat]`.
-- **`ExplicitImports.jl` (Julia $\ge 1.11$):** passes all seven checks
-  (`check_no_implicit_imports`, `check_no_stale_explicit_imports`,
-  `check_all_explicit_imports_via_owners`, `check_all_explicit_imports_are_public`,
-  `check_all_qualified_accesses_via_owners`, `check_all_qualified_accesses_are_public`,
-  and `check_no_self_qualified_accesses`).
-- **Documentation & doctests:** zero `Docs.undocumented_names(CanopyExchange)` across
-  exported and `public` bindings, and `Documenter.doctest(CanopyExchange)` verified
-  on both `Pkg.test()` and `docs/make.jl` (`checkdocs = :all`).
-- **1st- and 2nd-order `ForwardDiff` vs. `BigFloat`:** end-to-end gradients and
-  Hessians of coupled `PlantLayerGeometry` + `plant_air_sources` + `steady_top_flux` +
-  `layer_tendency` + `moist_air_tendencies` pipelines match `BigFloat` central
-  differences (`rtol = 1e-11` gradients, `rtol = 1e-9` Hessians), while rejecting
-  `NaN`/`Inf` in dual partials via `@generated` [`CanopyExchange.finite_scalar`](@ref).
-- **Generic indexing & zero allocations:** `accumulate_steady_fluxes!` and scalar
-  kernels allocate `0` bytes after warmup and support `OffsetArray`, `@view`, and
-  0-layer columns.
-- **GPU & CliMA co-load verification:** verified on NVIDIA L40S GPUs
-  (`test/run_cuda.jl`, `CUDA.allowscalar(false)`) in `Float32` and `Float64`, and
-  co-loaded with `ClimaAtmos`, `ClimaCore`, `SurfaceFluxes`, and `Thermodynamics`
-  (`ClimaCore.Fields.Field` `@.` broadcasting in `Float32` and `Float64`).
+- **Physical invariants** (`test_conservative_exchange.jl`,
+  `test_migration_invariants.jl`): interior-face cancellation on a nonuniform grid,
+  donor ledgers, datum shifts on faces and leaves with an operand-based round-off
+  bound, layer subdivision, absent versus computed-zero tracers, empty layers.
+- **Contracts** (`test_contracts.jl`): the precision policy in every constructor and
+  kernel (`ArgumentError` for `Float32` with `Float64` and for integers), measure
+  safety, tracer rules, the counterexamples of the first review round, and AD
+  contracts (mixed plain and dual inputs, right derivative at an empty layer,
+  rejection of nonfinite derivative components, gradient against central differences).
+- **Extension points** (`test_extension_points.jl`): a second tracer set
+  `(co2, cos, ch4)` through the tagged records, bit-identical to the scalar path, and a
+  third element class with its own geometry defined only in the test.
+- **Inference and allocations** (`test_inference_and_allocations.jl`): `@inferred`,
+  result element type, `isbits` results and zero allocations for every exported
+  kernel and constructor in `Float32` and `Float64`.
+- **QA and AD** (`qa_and_ad.jl`): `Aqua.test_all`, `ExplicitImports` (Julia ≥ 1.11),
+  no undocumented names, doctests, first and second derivatives of a coupled
+  leaf + stem + column + moist-air pipeline against `BigFloat` central differences,
+  `BigFloat` duals, container promotion, value equality and hashing, `OffsetArray`
+  and view columns, zero-allocation kernels.
+
+Opt-in device scripts build their own temporary environment:
+`test/run_cuda.jl` (`CuArray` broadcasts, `CUDA.allowscalar(false)`) and
+`test/run_fields.jl` (`ClimaCore.Fields.Field` on CPU and CUDA, `Float32` and
+`Float64`). GPU arithmetic may contract `a*b + c`, so sums are compared to rounding
+tolerance there and pure products exactly.

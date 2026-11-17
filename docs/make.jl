@@ -13,9 +13,9 @@ function build()
         ],
         "API Reference" => [
             "Overview & Index" => "api/index.md",
-            "Quantities & Layer Geometries" => "api/quantities_and_geometries.md",
+            "Records, Measures & Layer Geometries" => "api/quantities_and_geometries.md",
             "Area Sources & Divergence" => "api/sources_and_tendencies.md",
-            "CliMA Contracts & Scalar Traits" => "api/clima_and_scalars.md",
+            "Boundary Fluxes, Moist Air & Scalar Hooks" => "api/clima_and_scalars.md",
         ],
     ]
 
