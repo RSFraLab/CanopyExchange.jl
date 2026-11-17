@@ -3,7 +3,9 @@
 using Test, CanopyExchange
 
 # Helper functions keep @allocated out of @testset scope (Julia 1.10).
-allocations(f, args...) = (f(args...); @allocated f(args...))
+allocations(f::F, args::Vararg{Any,N}) where {F,N} = (f(args...); @allocated f(args...))
+# A type passed through `Vararg{Any}` is not specialized on Julia 1.10; wrap it.
+stem_area_density(g) = area_density(g, StemArea)
 
 function kernel_cases(::Type{FT}) where {FT}
     T2 = Tracers(:co2, :o2)
@@ -32,7 +34,7 @@ function kernel_cases(::Type{FT}) where {FT}
         (layer_geometry, (FT(2), FT(1))),
         (layer_geometry, (FT(2), FT(1), FT(0.5))),
         (thickness, (pg,)),
-        (area_density, (pg, StemArea)),
+        (stem_area_density, (pg,)),
         (plant_area_density, (pg,)),
         (area_source, (FT(150), FT(0.8))),
         (area_source, (FT(NaN), zero(FT))),
