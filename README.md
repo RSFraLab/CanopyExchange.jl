@@ -28,8 +28,8 @@ T = Tracers(:co2, :o2)
 
 # 3. One-sided leaf & stem fluxes -> paired (; air, leaf, stem) bulk-volume sources
 lf   = sensible_water_flux(95.0, 4.0e-5, 2.547e6, T(-1.4e-5, 1.5e-5)) # H, E, h_v(T_leaf), tracers
-sf   = sensible_stem_flux(20.0, T(0.0, 0.0))                          # dry stem sensible heat
-srcs = plant_air_sources(lf, sf, geom)                                # air + leaf + stem == 0
+sf   = sensible_stem_flux(20.0, T(0.0, 0.0))                          # dry stem: asserts zero CO₂ and O₂
+srcs = plant_air_sources(lf, sf, geom)                                # air + (leaf + stem) == 0 exactly
 
 # 4. SurfaceFluxes static-energy boundary & diagnostic zero-storage top flux
 soil = surface_static_energy_flux(45.0, 90.0, 3.6e-5, T(2.0e-6, -2.0e-6))
@@ -59,15 +59,23 @@ tags them with the measure `M`:
 Cross-measure addition (`LeafFlux + StemFlux`) is a `MethodError`. Mixed
 floating-point precision (`Float32` with `Float64`), integer inputs, and records with
 different tracer sets (`(; co2)` with `(; co2, o2)`, or another order) are
-`ArgumentError`s. Tracers are molar and passive; water isotopologues are subsets of
-`water` and never enter total mass; an `o2` key does not create an oxygen inventory.
+`ArgumentError`s. Tracers are molar and passive (their mass is left out of the
+total-mass source: the trace approximation, about 1 % of daytime transpiration mass
+for CO₂ and dominant at night); water isotopologues are subsets of `water` and never
+enter total mass; `tracers.o2` is a transfer ledger, not an oxygen inventory (bulk O₂
+is not a trace constituent). An uncomputed tracer is not a key; a key with value
+zero asserts a zero transfer.
 Empty layers with exact zero `LAD` or `SAD` (and zero AD partials) turn nonfinite
 dummy element fluxes into exact zeros, while perturbed dual densities
 (`Dual(0.0, 1.0)`) keep the right derivative.
 
-A layer geometry is any type with `thickness(g)`, `area_density(g, M)` and
-`Base.eltype`; a new element class is a new `Measure` subtype. Neither needs changes
-to this package (see `test/test_extension_points.jl`).
+A layer geometry is any type with a thickness and `CanopyExchange.area_density(g, M)`
+for its element classes (the public, not exported, geometry interface); a new kind of
+element surface is a new `Measure` subtype with fluxes from
+`sensible_water_flux(FruitArea(), H, E, h_v, tracers)`. Neither needs changes to this
+package (see `test/test_extension_points.jl`). Several populations of one element
+(sunlit and shaded leaves) share `LeafArea` and are summed as area-weighted volume
+sources, not as `LeafFlux`es.
 
 ## Where to find things
 
@@ -75,21 +83,23 @@ to this package (see `test/test_extension_points.jl`).
 | --- | --- |
 | API reference for all exported and `public` names | [docs/src/api/index.md](docs/src/api/index.md) |
 | Scalar hooks and the precision policy | [src/precision.jl](src/precision.jl), [ext/CanopyExchangeForwardDiffExt.jl](ext/CanopyExchangeForwardDiffExt.jl) |
-| `ExchangeRates`, `Tracers`, `MoistAirTendencies`, record algebra, equality | [src/rates.jl](src/rates.jl) |
+| `ExchangeRates`, `Tracers`, record algebra | [src/rates.jl](src/rates.jl) |
+| Equality, hashing, broadcasting of every record | [src/records.jl](src/records.jl) |
 | Measures and `Exchange` records, function-form constructors | [src/measures.jl](src/measures.jl) |
 | Layer geometry interface | [src/geometry.jl](src/geometry.jl) |
 | Area-to-volume sources and paired ledgers | [src/area_to_volume.jl](src/area_to_volume.jl), [docs/src/pages/measures_and_conservation.md](docs/src/pages/measures_and_conservation.md) |
 | Flux divergence and steady columns | [src/flux_divergence.jl](src/flux_divergence.jl) |
-| Vapour enthalpy, SurfaceFluxes boundary, energy datum | [src/boundary_fluxes.jl](src/boundary_fluxes.jl), [docs/src/pages/clima_interoperability.md](docs/src/pages/clima_interoperability.md) |
-| Gas-volume moist-air tendencies | [src/moist_air.jl](src/moist_air.jl) |
+| Vapour enthalpy, SurfaceFluxes boundary, energy datum | [src/water_energy.jl](src/water_energy.jl), [docs/src/pages/clima_interoperability.md](docs/src/pages/clima_interoperability.md) |
+| `MoistAirTendencies` and gas-volume moist-air tendencies | [src/moist_air.jl](src/moist_air.jl) |
 | Tests: invariants, contracts, extension points, inference, QA and AD | [test/runtests.jl](test/runtests.jl) |
 | Frozen bit records and device scripts | [docs/validation.md](docs/validation.md), [test/reference/](test/reference/), [test/run_cuda.jl](test/run_cuda.jl), [test/run_fields.jl](test/run_fields.jl) |
 
 ## Verification and documentation build
 
 ```sh
-# Full CPU test suite (Aqua, ExplicitImports, doctests, frozen bit records, AD, OffsetArrays)
-julia --startup-file=no --project=. -e 'using Pkg; Pkg.test()'
+# Full CPU test suite (Aqua, ExplicitImports, doctests, frozen bit records, AD, OffsetArrays),
+# from a temporary environment so no Manifest.toml is written into the checkout
+julia --startup-file=no -e 'using Pkg; Pkg.activate(temp=true); Pkg.develop(path=pwd()); Pkg.test("CanopyExchange")'
 
 # Opt-in device checks (each builds its own temporary environment)
 julia --startup-file=no test/run_cuda.jl     # CuArray broadcasts

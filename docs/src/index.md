@@ -6,7 +6,7 @@
 ([`ExchangeRates`](@ref)) with the measure they are expressed per ([`Exchange`](@ref)),
 and provides the conservative arithmetic that connects leaf and stem physiology to
 canopy-air and atmospheric column budgets. Kernels are allocation-free in `Float32`
-and `Float64`, broadcast over `CuArray` and `ClimaCore.Fields.Field`, and propagate
+and `Float64` (tested with up to 12 tracers), broadcast over `CuArray` and `ClimaCore.Fields.Field`, and propagate
 `ForwardDiff.Dual` derivatives (through a package extension).
 
 ## Spatial measures and sign conventions

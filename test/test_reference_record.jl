@@ -2,7 +2,8 @@ using Test, TOML, CanopyExchange
 @isdefined(exchange_fixture) || include("exchange_fixture.jl")
 include("reference_record.jl")
 
-# Bit-for-bit comparison with the outputs frozen from v0.1.1 (see write_reference_record.jl).
+# Bit-for-bit comparison with the outputs frozen from v0.1.1, commit c35ad8d. Provenance,
+# keys and units of the record: test/reference/README.md and write_reference_record.jl.
 @testset "Frozen v0.1.1 reference record (leaf, stem, datum, steady, moist air)" begin
     path = joinpath(@__DIR__, "reference", "exchange_v0_1_1.toml")
     frozen = TOML.parsefile(path)["profiles"]

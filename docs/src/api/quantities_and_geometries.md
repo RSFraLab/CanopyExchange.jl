@@ -6,8 +6,9 @@ molar tracers) are separated from the spatial measure they are expressed per
 descriptors. Gas-volume host tendencies are [`MoistAirTendencies`](@ref).
 
 All records are immutable and `isbits` for plain floats, act as scalars in broadcasts,
-compare by value (`-0.0 == 0.0`, `NaN != NaN`; `isequal` and `hash` consistent), and
-support componentwise `+`, `-`, unary `-`, scalar `*` and `/` and `zero`. A vector of a
+compare by value and derivative components (`-0.0 == 0.0`, `NaN != NaN`; `isequal`
+and `hash` consistent), and support componentwise `+`, `-`, unary `-`, scalar `*`
+and `/` and `zero`. They are not collections (no `map`, iteration or `length`). A vector of a
 plain and a dual-valued record promotes to a concrete dual-valued element type.
 
 ```@contents
@@ -47,7 +48,7 @@ face_flux
 LayerGeometry
 PlantLayerGeometry
 layer_geometry
-thickness
-area_density
+CanopyExchange.area_density
+CanopyExchange.thickness
 plant_area_density
 ```

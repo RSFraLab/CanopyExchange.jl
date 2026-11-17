@@ -8,7 +8,7 @@ weak dependency that only loads the scalar-hook extension).
 ## 1. `SurfaceFluxes.jl` & `Thermodynamics.jl` Static-Energy Datum
 
 In `SurfaceFluxes.jl`, surface sensible and latent heat fluxes (`sfc.shf`, `sfc.lhf`)
-and kinematic evaporation (`sfc.evaporation`, $E$ [$\mathrm{kg\,m^{-2}\,s^{-1}}$])
+and the evaporation mass flux (`sfc.evaporation`, $E$ [$\mathrm{kg\,m^{-2}\,s^{-1}}$])
 are defined relative to `Thermodynamics.jl`'s reference temperature $T_0$ and
 surface geopotential $\Phi_{\mathrm{sfc}} = g z_{\mathrm{sfc}}$:
 
@@ -30,8 +30,10 @@ components yields the exact moist static-energy boundary flux:
 ```
 
 because $\mathrm{LH}_{v0} + c_{pv}(T_{\mathrm{sfc}} - T_0) = h_v(T_{\mathrm{sfc}})$
-(`Thermodynamics.enthalpy_vapor(thermo_params, T_sfc)`). Pass `sfc.shf`, `sfc.lhf`,
-and `sfc.evaporation` directly to [`surface_static_energy_flux`](@ref):
+(`Thermodynamics.enthalpy_vapor(thermo_params, T_sfc)`). This holds for fluxes
+computed by SurfaceFluxes.jl ≥ 1.0, not for prescribed fluxes. Pass `sfc.shf`,
+`sfc.lhf`, and `sfc.evaporation` (the evaporation mass flux) directly to
+[`surface_static_energy_flux`](@ref):
 
 ```julia
 # With sfc = SurfaceFluxes.surface_conditions(sf_params, sf_inputs):
@@ -51,10 +53,23 @@ lf_k = sensible_water_flux(H_leaf, E_leaf, hv_k, (; co2 = C_leaf))
 
 ## 2. Reference-Enthalpy & Geopotential Shifts (`shift_water_energy_datum`)
 
-Eddy-covariance flux products and standalone leaf models often express energy fluxes
-relative to liquid water at $T_{\mathrm{ref}} = 273.15\,\mathrm{K}$ without
-geopotential, whereas atmospheric columns use `Thermodynamics.jl`'s reference internal
-energy plus local geopotential $\Phi(z)$.
+Eddy-covariance flux products and standalone leaf models often report
+$H + L_v(T_{\mathrm{air}})\,E$: latent heat at the air temperature and no geopotential.
+`Thermodynamics.jl`'s energy datum is liquid water at the triple point
+$T_0 = 273.16\,\mathrm{K}$, and the static-energy boundary of SurfaceFluxes.jl
+carries $E\,(h_v(T_{\mathrm{sfc}}) + \Phi)$. The shift per kg of water that maps the
+eddy-covariance form onto that datum is
+
+```math
+\delta = h_v(T_{\mathrm{sfc}}) + \Phi - L_v(T_{\mathrm{air}})
+\approx c_l\,(T_{\mathrm{air}} - T_0) + \Phi ,
+```
+
+because $h_v(T) = L_{v,0} + c_{pv}(T - T_0)$ and
+$L_v(T) = L_{v,0} + (c_{pv} - c_l)(T - T_0)$ differ by $c_l (T - T_0)$ (the
+approximation takes $T_{\mathrm{sfc}} \approx T_{\mathrm{air}}$; otherwise add
+$c_{pv}(T_{\mathrm{sfc}} - T_{\mathrm{air}})$). Here $c_l$ and $c_{pv}$ are the specific
+heats of liquid water and water vapour.
 
 Use [`shift_water_energy_datum`](@ref) with $\Delta e_w = e_{w,\mathrm{target}} - e_{w,\mathrm{source}}$
 [$\mathrm{J\,kg^{-1}\,H_2O}$] on **individual shared `FaceFlux`, `LeafFlux`,

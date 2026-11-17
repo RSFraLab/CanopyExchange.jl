@@ -14,24 +14,40 @@ The version in `Project.toml` is not yet bumped.
   `AbstractLayerGeometry`, and the scalar reflection helpers `primal_float_type`,
   `primal_scalar`, `is_continuous_scalar`, `compatible_scalar`, `finite_scalar`,
   `exact_zero_scalar`.
+- Removed the type-parameter constructors `ExchangeRates{FT,O}(...)`,
+  `MoistAirTendencies{FT,O}(...)`, `LeafFlux{FT,O}(...)` (and the other flux types),
+  `LayerGeometry{FT}(...)` and `PlantLayerGeometry{FT}(...)`; construct without type
+  parameters (the scalar type follows the arguments) or use `convert`.
 - `LeafFlux`, `StemFlux`, `FaceFlux`, `VolumeSource` are aliases of
   `Exchange{LeafArea}`, `Exchange{StemArea}`, `Exchange{GroundArea}`,
   `Exchange{BulkVolume}`; their type parameters are now `{M,R}` instead of `{FT,O}`.
 - New argument order: `sensible_water_flux(H, E, h_v, tracers)` and
   `sensible_stem_flux(H, E, h_v, tracers)` (vapour enthalpy before the tracers);
   `surface_static_energy_flux(shf, lhf, E, tracers)`.
-- Mixed floating-point precision, integer, rational and irrational inputs, and
-  mismatched tracer sets throw `ArgumentError` (previously `MethodError`).
+- Mixed floating-point precision, integer, rational and irrational inputs, non-scalar
+  tracer values, and mismatched tracer sets throw `ArgumentError` (previously
+  `MethodError`), with static messages.
+- Scalar kernels (`area_source`, `leaf_area_source`, `stem_area_source`,
+  `conserved_tendency`) accept `Real` scalars only; records go through
+  `volume_source` and `layer_tendency`.
+- Record `==` and `isequal` compare values and derivative components (identical on
+  ForwardDiff 0.10 and 1.x); a dual record with a nonzero derivative differs from the
+  plain record.
 - Keyword constructors take `tracers` instead of `carbon`/`oxygen`.
 
 ### Added
 - Open passive tracer set (`Tracers(:co2, :o2)` callable for broadcasts), the
-  `Measure` types and `Exchange{M}`, `volume_source`, duck-typed geometry interface
-  (`thickness`, `area_density`), function-form constructors (`leaf_flux`, `stem_flux`,
-  `face_flux`, `layer_geometry`) for GPU field broadcasts.
+  `Measure` types and `Exchange{M}`, `volume_source`, function-form constructors
+  (`leaf_flux`, `stem_flux`, `face_flux`, `layer_geometry`) for GPU field broadcasts,
+  and `sensible_water_flux(measure, H, E, h_v, tracers)` for any element class (a
+  measure instance such as `StemArea()` is a broadcast scalar).
+- Duck-typed geometry interface `CanopyExchange.thickness` and
+  `CanopyExchange.area_density`: `public`, not exported (generic names; extend them
+  qualified). `Base.eltype` is not required of external geometries.
 - `public` scalar hooks `CanopyExchange.primal_type`, `primal`, `all_finite`,
-  `exact_zero`, and the package extension `CanopyExchangeForwardDiffExt` (ForwardDiff
-  0.10 and 1.x as a weak dependency; runtime `[deps]` stay empty).
+  `exact_zero`, `scalar_equal`, and the package extension
+  `CanopyExchangeForwardDiffExt` (ForwardDiff 0.10 and 1.x as a weak dependency;
+  runtime `[deps]` stay empty).
 - Frozen v0.1.1 bit record (`test/reference/exchange_v0_1_1.toml`) of the leaf, stem,
   datum-shift, steady-column, surface and moist-air outputs; the new core reproduces
   it bit for bit. Tests for the precision policy, a second tracer set, a third element
@@ -58,6 +74,9 @@ The version in `Project.toml` is not yet bumped.
 | `CanopyExchange.finite_scalar(x)` / `exact_zero_scalar(x)` | `CanopyExchange.all_finite(x)` / `CanopyExchange.exact_zero(x)` |
 | `CanopyExchange.primal_float_type(T)` / `primal_scalar(x)` | `CanopyExchange.primal_type(T)` / `CanopyExchange.primal(x)` |
 | `catch e::MethodError` for mixed precision or oxygen mode | `ArgumentError` |
+| `ExchangeRates{FT,O}(e, w, c, o)`, `LayerGeometry{FT}(dz, lad)` | `ExchangeRates(e, w, (; co2 = c, o2 = o))`, `LayerGeometry(dz, lad)` |
+| `g.thickness`, `g.leaf_area_density` (still work) | also `CanopyExchange.thickness(g)`, `CanopyExchange.area_density(g, LeafArea)` |
+| `area_source(record, density)` (never supported) | `volume_source(flux, geometry)` |
 
 ## v0.1.1
 

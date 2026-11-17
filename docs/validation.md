@@ -1,4 +1,8 @@
-# Extraction validation, 2026-11-08
+# Extraction validation, 2026-11-08 (historical, v0.1.0/v0.1.1)
+
+This section records the extraction checkpoint. The file names and hashes below refer
+to the v0.1.x sources (`src/quantities.jl`, `src/sources.jl`), which the 0.2.0 core
+replaced; the leaf bit record and its SHA-256 still hold.
 
 This package extracts the conservative scalar contracts from CanopyColumn
 `05723a9eec3baa96da7185dd164a88d622ee72d1`. The original checkout is preserved.

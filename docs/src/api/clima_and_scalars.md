@@ -40,11 +40,12 @@ moist_air_tendencies
 The defaults are exact for plain floating-point numbers. The package extension
 `CanopyExchangeForwardDiffExt` (loaded with ForwardDiff 0.10 or 1.x) defines them for
 `ForwardDiff.Dual`; another number type with derivative information takes part by
-defining the same four methods.
+defining the same five methods.
 
 ```@docs
 CanopyExchange.primal_type
 CanopyExchange.primal
 CanopyExchange.all_finite
 CanopyExchange.exact_zero
+CanopyExchange.scalar_equal
 ```

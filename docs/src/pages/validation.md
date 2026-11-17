@@ -30,10 +30,13 @@ division by the gas fraction is fieldwise `/ ε` (exact at `ε == 1`).
 - **Physical invariants** (`test_conservative_exchange.jl`,
   `test_migration_invariants.jl`): interior-face cancellation on a nonuniform grid,
   donor ledgers, datum shifts on faces and leaves with an operand-based round-off
-  bound, layer subdivision, absent versus computed-zero tracers, empty layers.
+  bound, layer subdivision, absent versus computed-zero tracers, empty layers, and
+  independent expressions for the column datum shift (shift × water budget), the
+  surface static-energy flux, transpiring stems and gas fractions below one.
 - **Contracts** (`test_contracts.jl`): the precision policy in every constructor and
   kernel (`ArgumentError` for `Float32` with `Float64` and for integers), measure
-  safety, tracer rules, the counterexamples of the first review round, and AD
+  safety, tracer rules, steady accumulation over mixed, abstract and external
+  geometry vectors, record equality identical on ForwardDiff 0.10 and 1.x, the counterexamples of the first review round, and AD
   contracts (mixed plain and dual inputs, right derivative at an empty layer,
   rejection of nonfinite derivative components, gradient against central differences).
 - **Extension points** (`test_extension_points.jl`): a second tracer set
@@ -41,7 +44,7 @@ division by the gas fraction is fieldwise `/ ε` (exact at `ε == 1`).
   third element class with its own geometry defined only in the test.
 - **Inference and allocations** (`test_inference_and_allocations.jl`): `@inferred`,
   result element type, `isbits` results and zero allocations for every exported
-  kernel and constructor in `Float32` and `Float64`.
+  kernel and constructor in `Float32` and `Float64`, with 2 and with 12 tracers.
 - **QA and AD** (`qa_and_ad.jl`): `Aqua.test_all`, `ExplicitImports` (Julia ≥ 1.11),
   no undocumented names, doctests, first and second derivatives of a coupled
   leaf + stem + column + moist-air pipeline against `BigFloat` central differences,
