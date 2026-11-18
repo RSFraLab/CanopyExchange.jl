@@ -1,7 +1,7 @@
 name = "CanopyExchange"
 uuid = "bcadd6a6-82db-4312-8c3d-ee75d4df0995"
 authors = ["Christian Frankenberg <cfranken@caltech.edu> and contributors"]
-version = "0.1.1"
+version = "0.2.0"
 
 [weakdeps]
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"

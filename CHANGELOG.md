@@ -1,8 +1,6 @@
 # Changelog
 
-## Unreleased (0.2.0)
-
-The version in `Project.toml` is not yet bumped.
+## v0.2.0
 
 ### Breaking
 - `ExchangeRates(energy, water, tracers::NamedTuple)` replaces the fixed `carbon` field

@@ -68,7 +68,7 @@ The CPU environments were cloned from previously accepted environments and
 resolved using `Pkg.develop`, without modifying the original manifests. Julia 1.10
 compatibility is retained from the source package; this checkpoint executed 1.12.6.
 
-# Open tracer core (Unreleased 0.2.0), 2026-11-17 (after the review fix round)
+# Open tracer core (0.2.0), 2026-11-17 (after the review fix round)
 
 Before `src/` was changed, `test/write_reference_record.jl` wrote
 `test/reference/exchange_v0_1_1.toml` from v0.1.1 (commit `c35ad8d`): IEEE bit strings
