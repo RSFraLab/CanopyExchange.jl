@@ -34,6 +34,8 @@
 - Keyword constructors take `tracers` instead of `carbon`/`oxygen`.
 
 ### Added
+- `Tracers` is a broadcast scalar (`Base.Broadcast.broadcastable`), so a tracer set can
+  be passed as a broadcast argument as well as used in the function position.
 - Open passive tracer set (`Tracers(:co2, :o2)` callable for broadcasts), the
   `Measure` types and `Exchange{M}`, `volume_source`, function-form constructors
   (`leaf_flux`, `stem_flux`, `face_flux`, `layer_geometry`) for GPU field broadcasts,

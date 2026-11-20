@@ -107,6 +107,9 @@ function Tracers(names::Symbol...)
     return Tracers{names}()
 end
 @inline (::Tracers{names})(values::Vararg{Real,N}) where {names,N} = NamedTuple{names}(values)
+# A tracer set is a scalar in broadcasts, so it can also be passed as an argument
+# (`f.(tracers, field)`), not only used in the function position.
+Base.Broadcast.broadcastable(t::Tracers) = Ref(t)
 
 # ============================================================================
 # Checked promotion of record components (constructors)

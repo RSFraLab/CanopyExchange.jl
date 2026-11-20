@@ -60,6 +60,11 @@ end
         @test_throws ArgumentError("tracer values must be real scalars") ExchangeRates(1.0, 2.0, (; a = bad))
     end
     @test_throws ArgumentError Tracers(:co2, :co2)
+    # A tracer set is a broadcast scalar: usable as an argument, not only as the function.
+    name_first(t, a, b) = t(a, b)
+    @test name_first.(Tracers(:co2, :o2), [1.0, 2.0], [3.0, 4.0]) ==
+          [(co2 = 1.0, o2 = 3.0), (co2 = 2.0, o2 = 4.0)]
+    @test isbits(Tracers(:co2, :o2))
     # Abstract containers: dispatch is on the runtime values, so mixed Float32/Float64
     # contents are rejected and homogeneous contents work; an abstract element type
     # itself never passes the policy.
